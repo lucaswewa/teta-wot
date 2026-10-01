@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Windows x86_64 is the only supported platform (ADR-0013).
+jobs:
+  rust:
+    name: Rust (Windows x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain (ADR-0014).
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --all-features --locked
+      - name: Documentation
+        run: cargo doc --workspace --all-features --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Example smoke tests
+        shell: bash
+        run: |
+          for example in examples/*/; do
+            name=$(basename "$example")
+            echo "::group::$name"
+            cargo run --quiet --locked --manifest-path "$example/Cargo.toml"
+            echo "::endgroup::"
+          done
