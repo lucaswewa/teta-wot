@@ -50,8 +50,7 @@ impl fmt::Display for LocItem {
     }
 }
 
-/// One validation error, in pydantic's shape (as FastAPI returns it in a
-/// 422 `detail` list).
+/// One validation error, in pydantic's shape.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ValidationIssue {
     /// The error type, such as `int_parsing` or `missing`.
@@ -676,8 +675,7 @@ impl Run<'_> {
     }
 
     /// Objects: models (with `properties`) and maps. A model that isn't an
-    /// object is `model_attributes_type`, as FastAPI reports it for bodies
-    /// and nested models.
+    /// object is `model_attributes_type`.
     fn object(&mut self, schema: &DataSchema, value: &Value) -> Option<Value> {
         let additional = schema.extra.get("additionalProperties");
         let Value::Object(members) = value else {

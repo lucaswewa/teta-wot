@@ -16,6 +16,25 @@
 pub use teta_wot_core::*;
 pub use teta_wot_td as td;
 
+/// The HTTP server and binding.
+pub mod server {
+    pub use teta_wot_http::{
+        HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id, td_id,
+    };
+    pub use teta_wot_server::{
+        DEFAULT_SHUTDOWN_GRACE, ServeError, ServerBuildError, ThingServer, ThingServerBuilder,
+        shutdown_signal,
+    };
+}
+
+/// Helpers for tests: running action code in a fake invocation, and an
+/// in-process HTTP client (`testing` feature).
+#[cfg(feature = "testing")]
+pub mod testing {
+    pub use teta_wot_core::testing::*;
+    pub use teta_wot_server::testing::*;
+}
+
 /// What Thing code usually nddes.
 pub mod prelude {
     pub use teta_wot_core::{
@@ -24,4 +43,5 @@ pub mod prelude {
         PropertyError, Runtime, Thing, ThingCtx, ThingDefinition, cancellable_sleep,
         check_cancelled,
     };
+    pub use teta_wot_server::ThingServer;
 }

@@ -1,0 +1,35 @@
+[package]
+name = "teta-wot-server"
+description = "teta-wot server: configuration, Thing-type registry, lifecycle and CLI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+## An in-process test client (`wot_server::testing`).
+testing = []
+
+[dependencies]
+axum.workspace = true
+bytes.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tracing.workspace = true
+teta-wot-core.workspace = true
+teta-wot-http.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+schemars.workspace = true
+serde.workspace = true
+teta-wot-core = { workspace = true, features = ["testing"] }
+teta-wot-server = { path = ".", features = ["testing"] }
+
+[lints]
+workspace = true

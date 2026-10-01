@@ -667,7 +667,8 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
         TdOptions::for_name("actions"),
         TdOptions {
             path: "/actions/".into(),
-            base: None
+            base: None,
+            id: None,
         }
     );
     let td = serde_json::to_value(
@@ -675,6 +676,7 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
             .thing_description(&TdOptions {
                 path: "/api/actions/".into(),
                 base: Some("https://example.com/".into()),
+                id: Some("thing_id".into()),
             })
             .unwrap(),
     )
@@ -682,6 +684,7 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
     assert_eq!(td["title"], "Action fixture");
     assert_eq!(td["description"], "Runtime test fixture.");
     assert_eq!(td["base"], "https://example.com/");
+    assert_eq!(td["id"], "thing_id");
     assert_eq!(
         td["properties"]
             .as_object()

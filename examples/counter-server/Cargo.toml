@@ -1,0 +1,15 @@
+[package]
+name = "counter-server"
+description = "Example: quickstart counter, served over HTTP, driven by the Python client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+tokio.workspace = true
+teta-wot = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

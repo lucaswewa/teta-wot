@@ -274,6 +274,8 @@ pub struct TdOptions {
     pub path: String,
     /// The base URL, if known.
     pub base: Option<String>,
+    /// The TD's `id`, if any.
+    pub id: Option<String>,
 }
 
 impl TdOptions {
@@ -282,6 +284,7 @@ impl TdOptions {
         Self {
             path: format!("/{name}/"),
             base: None,
+            id: None,
         }
     }
 }
@@ -462,6 +465,9 @@ impl ThingHandle {
     /// titled `<name>_input` and `<name>_output`, and the `no_security` scheme.
     pub fn thing_description(&self, options: &TdOptions) -> Result<ThingDescription, TdError> {
         let mut td = ThingDescription::builder(&self.title);
+        if let Some(id) = &options.id {
+            td = td.id(id);
+        }
         if let Some(description) = &self.description {
             td = td.description(description);
         }
@@ -597,7 +603,7 @@ impl ActionEntry {
     pub fn invoke(&self, input: Value) -> Result<Arc<Invocation>, ValidationError> {
         let shared = &self.shared;
         shared.invocations.expire();
-        // FastAPI treats a `null` body as missing, which only inputs that
+        // Treats a `null` body as missing, which only inputs that
         // may be `null` (such as `NoInput`) accept.
         if input.is_null() && !accepts_null(self.handler.input_schema()) {
             return Err(ValidationError::missing(
