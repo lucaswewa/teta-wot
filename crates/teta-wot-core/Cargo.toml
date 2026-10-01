@@ -1,0 +1,36 @@
+[package]
+name = "teta-wot-core"
+description = "Runtime core of wot-rs: Things, property cells, invocations, cancellation, events, device actors."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+## Helpers for testing Things without a server (`teta_wot_core::testing`).
+testing = []
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+teta-wot-td.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+teta-wot-core = { path = ".", features = ["testing"] }
+teta-wot-td = { workspace = true, features = ["validation"] }
+
+[lints]
+workspace = true

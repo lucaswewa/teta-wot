@@ -6,14 +6,14 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Windows x86_64 is the only supported platform (ADR-0013).
+# Windows x86_64 is the only supported platform for now.
 jobs:
   rust:
     name: Rust (Windows x86_64)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      # rustup reads rust-toolchain.toml and installs the pinned toolchain (ADR-0014).
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain.
       - name: Install the pinned toolchain
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2

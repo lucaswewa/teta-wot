@@ -9,9 +9,12 @@ publish.workspace = true
 [features]
 default = []
 validation = ["teta-wot-td/validation"]
+## Helpers for testing Things without a server (`wot::testing`).
+testing = ["teta-wot-core/testing"]
 
 [dependencies]
 teta-wot-td.workspace = true
+teta-wot-core.workspace = true
 
 [lints]
 workspace = true

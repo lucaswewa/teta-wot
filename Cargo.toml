@@ -9,16 +9,24 @@ rust-version = "1.98"
 publish = false
 
 [workspace.dependencies]
-teta-wot = { path = "crates/teta-wot" }
 teta-wot-td = { path = "crates/teta-wot-td" }
+teta-wot-core = { path = "crates/teta-wot-core" }
+teta-wot = { path = "crates/teta-wot" }
 
+anyhow = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+regex = "1.13"
 indexmap = { version = "2.14.2", features = ["serde"] }
 jsonschema = { version = "0.58.3", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
-schemars = "1.2.2"
+schemars = { version = "1.2", features = ["preserve_order"] }
+tokio = { version = "1.53", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 insta = { version = "1.48", features = ["json"] }
 thiserror = "2.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
+uuid = { version = "1.26", features = ["v4", "serde"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

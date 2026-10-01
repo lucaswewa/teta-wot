@@ -2,8 +2,7 @@
 //!
 //! The schema is vendored in `schema/td-json-schema-validation.json`. It is
 //! the W3C-hosted copy at <https://www.w3.org/2022/wot/td-schema/v1.1>,
-//! version `1.1-12-March-2025` (provenance and licence in
-//! `THIRD_PARTY_NOTICES.md`; policy in ADR-0016).
+//! version `1.1-12-March-2025`.
 
 use std::fmt;
 use std::sync::LazyLock;
