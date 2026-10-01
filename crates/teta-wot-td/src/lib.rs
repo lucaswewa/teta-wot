@@ -7,7 +7,7 @@
 //!   `@context` ([`Context`]);
 //! - builders that check the TD rules the type system can't
 //!   ([`ThingDescription::builder`], [`PropertyAffordance::builder`], ..);
-//! - conversion from Rust types (via [Schemars]) and JSON Schema to
+//! - conversion from Rust types (via [schemars]) and JSON Schema to
 //!   [`DataSchema`] ([`DataSchema::for_type`], [`convert`]);
 //! - Value [`Constraints`] and how they map into a schema;
 //! - with the `validation` feature, validation against the vendored W3C TD
