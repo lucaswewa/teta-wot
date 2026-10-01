@@ -1,0 +1,16 @@
+[package]
+name = "schema-to-dataschema"
+description = "Example: derive JsonSchema on Rust types and see the TD DataSchemas they convert to."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+teta-wot.workspace = true
+
+[lints]
+workspace = true

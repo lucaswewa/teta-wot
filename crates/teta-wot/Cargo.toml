@@ -1,0 +1,17 @@
+[package]
+name = "teta-wot"
+description = "teta-wot: expose laboratory hardware and software as W3C Web of Things Things. This is the crate that applications depend on."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+validation = ["teta-wot-td/validation"]
+
+[dependencies]
+teta-wot-td.workspace = true
+
+[lints]
+workspace = true

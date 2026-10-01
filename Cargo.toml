@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "examples/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[workspace.dependencies]
+teta-wot = { path = "crates/teta-wot" }
+teta-wot-td = { path = "crates/teta-wot-td" }
+
+indexmap = { version = "2.14.2", features = ["serde"] }
+jsonschema = { version = "0.58.3", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+schemars = "1.2.2"
+insta = { version = "1.48", features = ["json"] }
+thiserror = "2.0"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3

@@ -1,0 +1,26 @@
+[package]
+name = "teta-wot-td"
+description = "W3C WoT Thing Description 1.1 model, builders, JSON Schema to DataSchema conversion, and TD validation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+validation = ["dep:jsonschema"]
+
+[dependencies]
+jsonschema = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+indexmap.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+teta-wot-td = { path = ".", features = ["validation"] }
+
+[lints]
+workspace = true
