@@ -6,7 +6,6 @@
 //! cargo run -p counter-server -- --serve --port 0 # any free port
 //! ```
 
-
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
