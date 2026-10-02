@@ -22,6 +22,7 @@ anyhow = "1.0"
 axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "query", "tokio"] }
 bytes = "1.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+clap = { version = "4.6", features = ["derive"] }
 http = "1.5"
 http-body-util = "0.1.5"
 indexmap = { version = "2.14", features = ["serde"] }
@@ -35,6 +36,7 @@ schemars = { version = "1.2", features = ["preserve_order", "indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 syn = { version = "2.0.119", features = ["full"] }
+tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5.3", features = ["util"] }

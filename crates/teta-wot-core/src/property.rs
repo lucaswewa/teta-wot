@@ -20,6 +20,7 @@ use crate::device::DeviceError;
 use crate::lock::GlobalLockBusy;
 use crate::problem::ProblemDetails;
 use crate::runtime::Shared;
+use crate::settings::{SettingAccess, SettingsStore};
 use crate::thing::{DefinitionError, split_docstring};
 use crate::validate::{LocItem, SchemaValidator, ValidationError};
 
@@ -103,11 +104,13 @@ fn error_title(error: &PropertyError) -> &'static str {
     }
 }
 
-/// Where a bound [`Prop`] publishes its changes.
+/// Where a bound [`Prop`] publishes its changes, and the settings file it
+/// is saved to, if it is a setting.
 struct Binding {
     thing: Arc<str>,
     name: Arc<str>,
     broker: Arc<MessageBroker>,
+    settings: Option<Arc<SettingsStore>>,
 }
 
 /// The value of a data property: a typed cell with validation and change
@@ -182,14 +185,23 @@ impl<T: PropValue> Prop<T> {
         f(&self.value.borrow())
     }
 
-    /// Checks the constraints, stores `value` and notifies observers.
+    /// Checks the constraints, stores `value` and notifies observers. A
+    /// setting is then saved to its settings file.
     pub fn set(&self, value: T) -> Result<(), PropertyError> {
         if !self.constraints.is_empty() {
             let json = serde_json::to_value(&value).map_err(PropertyError::failed)?;
             self.validator()?.validate(&json, &[])?;
         }
         self.store(value);
-        Ok(())
+        self.save()
+    }
+
+    /// Saves the settings file, if this is a setting.
+    fn save(&self) -> Result<(), PropertyError> {
+        match self.binding.get().and_then(|b| b.settings.as_ref()) {
+            Some(settings) => settings.save(),
+            None => Ok(()),
+        }
     }
 
     /// Changes the value in place, then checks and stores it like
@@ -245,7 +257,7 @@ impl<T: PropValue> Prop<T> {
     fn set_from_client(&self, value: &Value) -> Result<(), PropertyError> {
         let typed = from_client::<T>(self.validator()?, value)?;
         self.store(typed);
-        Ok(())
+        self.save()
     }
 
     fn bind(&self, binding: Binding) {
@@ -281,10 +293,20 @@ pub(crate) struct PropertyMeta {
     pub global_lock: Option<bool>,
     pub unit: Option<String>,
     pub semantic_types: Vec<String>,
+    pub setting: bool,
 }
 
 macro_rules! meta_setters {
     () => {
+        /// Makes the property a setting: saved
+        /// to the Thing's settings file after every change, and loaded
+        /// from it when the server starts. Without a settings
+        /// folder on the server, it is an ordinary property.
+        pub fn setting(mut self) -> Self {
+            self.meta.setting = true;
+            self
+        }
+
         /// Sets the title (by default the property's name).
         pub fn title(mut self, title: impl Into<String>) -> Self {
             self.meta.title = Some(title.into());
@@ -346,6 +368,7 @@ type BuildFn<T> = Box<
             &str,
             &str,
             &Arc<Shared>,
+            Option<&Arc<SettingsStore>>,
         ) -> Result<Arc<dyn PropertyHandler>, DefinitionError>
         + Send,
 >;
@@ -440,18 +463,30 @@ impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for DataHandler<T, 
 impl<T: Send + Sync + 'static, V: PropValue> From<DataProperty<T, V>> for PropertySpec<T> {
     fn from(property: DataProperty<T, V>) -> Self {
         let accessor = property.accessor;
+        let is_setting = property.meta.setting;
         PropertySpec {
             meta: property.meta,
             default_read_only: false,
-            build: Box::new(move |thing, thing_name, name, shared| {
+            build: Box::new(move |thing, thing_name, name, shared, settings| {
                 let prop = accessor(thing);
                 let schema = prop
                     .data_schema()
                     .map_err(|e| DefinitionError::new(thing_name, name, e.to_string()))?;
+                let settings = settings.filter(|_| is_setting).cloned();
+                if let Some(store) = &settings {
+                    store.register(
+                        name,
+                        Arc::new(DataSetting {
+                            thing: Arc::clone(thing),
+                            accessor,
+                        }),
+                    );
+                }
                 prop.bind(Binding {
                     thing: thing_name.into(),
                     name: name.into(),
                     broker: Arc::clone(&shared.broker),
+                    settings,
                 });
                 Ok(Arc::new(DataHandler {
                     thing: Arc::clone(thing),
@@ -460,6 +495,65 @@ impl<T: Send + Sync + 'static, V: PropValue> From<DataProperty<T, V>> for Proper
                 }) as Arc<dyn PropertyHandler>)
             }),
         }
+    }
+}
+
+/// A data property that is a setting, as its settings file sees it.
+struct DataSetting<T, V: PropValue> {
+    thing: Arc<T>,
+    accessor: fn(&T) -> &Prop<V>,
+}
+
+impl<T: Send + Sync + 'static, V: PropValue> SettingAccess for DataSetting<T, V> {
+    fn prepare(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
+    fn current(&self) -> Option<Value> {
+        (self.accessor)(&self.thing).read(|v| serde_json::to_value(v).ok())
+    }
+
+    fn load<'a>(&'a self, value: &'a Value) -> BoxFuture<'a, Result<(), PropertyError>> {
+        let result = (self.accessor)(&self.thing).set_from_client(value);
+        Box::pin(async move { result })
+    }
+}
+
+/// A functional property that is a setting. The value saved is the
+/// getter's, read after each write through the property (and once before
+/// the file is loaded), because the getter is async and saving isn't.
+struct FunctionalSetting {
+    store: Arc<SettingsStore>,
+    last: std::sync::Mutex<Option<Value>>,
+}
+
+impl FunctionalSetting {
+    fn remember(&self, value: Option<Value>) {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = value;
+    }
+}
+
+/// The settings view of a functional handler.
+struct FunctionalSettingAccess<T, V: PropValue> {
+    handler: Arc<FunctionalHandler<T, V>>,
+}
+
+impl<T: Send + Sync + 'static, V: PropValue> SettingAccess for FunctionalSettingAccess<T, V> {
+    fn prepare(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move { self.handler.refresh().await })
+    }
+
+    fn current(&self) -> Option<Value> {
+        let setting = self.handler.setting.as_ref()?;
+        setting
+            .last
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn load<'a>(&'a self, value: &'a Value) -> BoxFuture<'a, Result<(), PropertyError>> {
+        Box::pin(async move { self.handler.write(value.clone()).await })
     }
 }
 
@@ -605,6 +699,27 @@ struct FunctionalHandler<T, V: PropValue> {
     resetter: Option<Resetter<T>>,
     default: Option<V>,
     validator: SchemaValidator,
+    setting: Option<FunctionalSetting>,
+}
+
+impl<T: Send + Sync + 'static, V: PropValue> FunctionalHandler<T, V> {
+    /// Reads the getter into the setting's saved value.
+    async fn refresh(&self) {
+        if let Some(setting) = &self.setting {
+            let value = (self.getter)(Arc::clone(&self.thing)).await.ok();
+            setting.remember(value.and_then(|v| serde_json::to_value(v).ok()));
+        }
+    }
+
+    /// After a successful write or reset: refreshes and saves the setting.
+    async fn saved(&self, result: Result<(), PropertyError>) -> Result<(), PropertyError> {
+        result?;
+        if let Some(setting) = &self.setting {
+            self.refresh().await;
+            setting.store.save()?;
+        }
+        Ok(())
+    }
 }
 
 impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for FunctionalHandler<T, V> {
@@ -622,7 +737,8 @@ impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for FunctionalHandl
                 return Err(PropertyError::ReadOnly(String::new()));
             };
             let typed = from_client::<V>(&self.validator, &value)?;
-            setter(Arc::clone(&self.thing), typed).await
+            let result = setter(Arc::clone(&self.thing), typed).await;
+            self.saved(result).await
         })
     }
 
@@ -632,15 +748,17 @@ impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for FunctionalHandl
 
     fn reset(&self) -> BoxFuture<'_, Result<(), PropertyError>> {
         Box::pin(async move {
-            if let Some(resetter) = &self.resetter {
-                return resetter(Arc::clone(&self.thing)).await;
-            }
-            match (&self.setter, &self.default) {
-                (Some(setter), Some(default)) => {
-                    setter(Arc::clone(&self.thing), default.clone()).await
+            let result = if let Some(resetter) = &self.resetter {
+                resetter(Arc::clone(&self.thing)).await
+            } else {
+                match (&self.setter, &self.default) {
+                    (Some(setter), Some(default)) => {
+                        setter(Arc::clone(&self.thing), default.clone()).await
+                    }
+                    _ => Err(PropertyError::NotResettable(String::new())),
                 }
-                _ => Err(PropertyError::NotResettable(String::new())),
-            }
+            };
+            self.saved(result).await
         })
     }
 
@@ -674,20 +792,35 @@ impl<T: Send + Sync + 'static, V: PropValue> From<FunctionalProperty<T, V>> for 
             constraints,
             meta,
         } = property;
+        let is_setting = meta.setting;
         PropertySpec {
             meta,
             default_read_only,
-            build: Box::new(move |thing, thing_name, name, _shared| {
+            build: Box::new(move |thing, thing_name, name, _shared, settings| {
                 let validator = build_validator::<V>(&constraints)
                     .map_err(|e| DefinitionError::new(thing_name, name, e))?;
-                Ok(Arc::new(FunctionalHandler {
+                let store = settings.filter(|_| is_setting).cloned();
+                let handler = Arc::new(FunctionalHandler {
                     thing: Arc::clone(thing),
                     getter,
                     setter,
                     resetter,
                     default,
                     validator,
-                }) as Arc<dyn PropertyHandler>)
+                    setting: store.as_ref().map(|store| FunctionalSetting {
+                        store: Arc::clone(store),
+                        last: std::sync::Mutex::new(None),
+                    }),
+                });
+                if let Some(store) = &store {
+                    store.register(
+                        name,
+                        Arc::new(FunctionalSettingAccess {
+                            handler: Arc::clone(&handler),
+                        }),
+                    );
+                }
+                Ok(handler as Arc<dyn PropertyHandler>)
             }),
         }
     }

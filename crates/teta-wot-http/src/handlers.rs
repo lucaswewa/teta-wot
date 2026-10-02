@@ -41,9 +41,17 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
                     Err(never) => match never {},
                 }
             }
-            _ => app.endpoint(&route.endpoint, param, &urls, body).await,
+            Endpoint::WriteProperty { .. } | Endpoint::InvokeAction { .. } => {
+                app.endpoint(&route.endpoint, param, &urls, body).await
+            }
+            _ => {
+                drain(body).await;
+                app.endpoint(&route.endpoint, param, &urls, Body::empty())
+                    .await
+            }
         },
         Found::WrongMethod(route) => {
+            drain(body).await;
             let mut response = detail(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed");
             if let Ok(allow) = HeaderValue::from_str(route.method.as_str()) {
                 response.headers_mut().insert(http::header::ALLOW, allow);
@@ -51,6 +59,7 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
             response
         }
         Found::Nothing => {
+            drain(body).await;
             let toggled = match path.strip_suffix('/') {
                 Some(_) => path.trim_end_matches('/').to_owned(),
                 None => format!("{path}/"),
@@ -71,6 +80,14 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
         *response.body_mut() = Body::empty();
     }
     response
+}
+
+/// Reads and discards a request body that the answer doesn't need. A
+/// connection closed with unread data in it is reset rather than closed,
+/// and the client may then lose the answer (seen on Windows, answering a
+/// `PUT` with 405).
+async fn drain(body: Body) {
+    let _ = axum::body::to_bytes(body, BODY_LIMIT).await;
 }
 
 impl App {

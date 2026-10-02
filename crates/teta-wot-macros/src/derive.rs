@@ -12,13 +12,8 @@ use crate::common::{
 };
 
 /// Field attributes for affordances that later phases implement.
-const LATER: [(&str, &str); 4] = [
-    (
-        "setting",
-        "settings (properties saved to disk) arrive with persistence",
-    ),
+const LATER: [(&str, &str); 2] = [
     ("event", "events arrive with observation"),
-    ("slot", "slots arrive with composition"),
     ("stream", "MJPEG streams arrive with Blobs and streams"),
 ];
 
@@ -30,6 +25,7 @@ struct ThingOptions {
     config: Option<Type>,
     semantic_types: Vec<Expr>,
     context: Vec<(LitStr, Expr)>,
+    interfaces: Vec<syn::Path>,
 }
 
 impl ThingOptions {
@@ -55,9 +51,14 @@ impl ThingOptions {
                         options.context.push((prefix, entry.value()?.parse()?));
                         Ok(())
                     })?;
+                } else if meta.path.is_ident("interfaces") {
+                    meta.parse_nested_meta(|entry| {
+                        options.interfaces.push(entry.path.clone());
+                        Ok(())
+                    })?;
                 } else {
                     return Err(meta.error(
-                        "unknown option for `#[thing]`; expected one of: title, description, config, semantic_type, context",
+                        "unknown option for `#[thing]`; expected one of: title, description, config, semantic_type, context, interfaces",
                     ));
                 }
                 Ok(())
@@ -69,7 +70,10 @@ impl ThingOptions {
 
 /// What a field is.
 enum Kind {
-    Property(Box<Options>),
+    /// A data property; `true` for a setting.
+    Property(Box<Options>, bool),
+    /// A slot, with its default selection.
+    Slot(TokenStream),
     Device {
         init: Option<Expr>,
         options: Option<Expr>,
@@ -116,7 +120,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
             continue;
         };
         let name_ident = field.ident.as_ref().expect("named fields");
-        let is_affordance = matches!(kind, Kind::Property(_) | Kind::Device { .. });
+        let is_affordance = matches!(kind, Kind::Property(..) | Kind::Device { .. });
         if is_affordance {
             let Some(name) = errors.push_result(affordance_name(name_ident)) else {
                 continue;
@@ -127,19 +131,37 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                     format!("two affordances are named `{name}`"),
                 ));
             }
-            if matches!(kind, Kind::Property(_)) {
+            if matches!(kind, Kind::Property(..)) {
                 guards.push(collision_guard(name_ident));
             }
         }
         match kind {
-            Kind::Property(property) => {
+            Kind::Slot(selection) => {
+                let is_slot = ["Slot", "OptSlot", "SlotMap"]
+                    .iter()
+                    .any(|name| unwrap_type(&field.ty, name).is_some());
+                if !is_slot {
+                    errors.push(error(
+                        field.ty.span(),
+                        "a `#[slot]` field must be a `Slot<T>`, `OptSlot<T>` or `SlotMap<T>`",
+                    ));
+                    continue;
+                }
+                let name = syn::ext::IdentExt::unraw(name_ident).to_string();
+                definition.push(quote! {
+                    .slot(#name, |thing: &Self| &thing.#name_ident, #selection)
+                });
+                inits.push(quote!(#name_ident: ::core::default::Default::default()));
+            }
+            Kind::Property(property, is_setting) => {
                 let Some(value) = unwrap_type(&field.ty, "Prop") else {
                     errors.push(error(
                         field.ty.span(),
-                        "a `#[property]` field must be a `Prop<T>`; for a property computed by a method, put `#[property]` on the method in `#[thing_impl]`",
+                        "a `#[property]` or `#[setting]` field must be a `Prop<T>`; for a property computed by a method, put the attribute on the method in `#[thing_impl]`",
                     ));
                     continue;
                 };
+                let setting = is_setting.then(|| quote!(.setting()));
                 if property.blocking {
                     errors.push(error(
                         field.span(),
@@ -157,7 +179,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                     true,
                 );
                 definition.push(quote! {
-                    .property(#name, ::teta_wot::DataProperty::new(|thing: &Self| &thing.#name_ident) #readonly #described)
+                    .property(#name, ::teta_wot::DataProperty::new(|thing: &Self| &thing.#name_ident) #readonly #setting #described)
                 });
                 let default = match &property.default {
                     Some(expr) => {
@@ -227,6 +249,12 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
         .semantic_types
         .iter()
         .map(|t| quote!(.semantic_type(#t)));
+    let class_name = ident.to_string();
+    let interfaces = options.interfaces.iter().map(|path| {
+        quote_spanned! {path.span()=>
+            .interface::<dyn #path>(|thing| ::std::sync::Arc::new(thing) as ::std::sync::Arc<dyn #path>)
+        }
+    });
 
     let config = config_type(&options.config);
     let construct = if matches!(data.fields, Fields::Unit) {
@@ -267,7 +295,8 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                 use ::teta_wot::__private::{ViaDefault as _, ViaImpl as _};
                 #(#asserts)*
                 let definition = ::teta_wot::ThingDefinition::new(#title)
-                    #description #(#context)* #(#types)*
+                    .class_name(#class_name)
+                    #description #(#context)* #(#types)* #(#interfaces)*
                     #(#definition)*;
                 (&::teta_wot::__private::Methods::<Self>::new()).definition(definition)
             }
@@ -319,26 +348,78 @@ fn config_type(config: &Option<Type>) -> TokenStream {
         .map_or_else(|| quote!(::teta_wot::NoConfig), ToTokens::to_token_stream)
 }
 
+/// `#[slot]` (by type), `#[slot(default = "name")]`,
+/// `#[slot(default = ["a", "b"])]` or `#[slot(default = None)]`, as a
+/// `SlotSelection`.
+fn slot_default(attr: &Attribute) -> syn::Result<TokenStream> {
+    let by_type = quote!(::teta_wot::SlotSelection::ByType);
+    if matches!(attr.meta, Meta::Path(_)) {
+        return Ok(by_type);
+    }
+    let mut selection = by_type;
+    attr.parse_nested_meta(|meta| {
+        if !meta.path.is_ident("default") {
+            return Err(meta.error("unknown option for `#[slot]`; expected: default"));
+        }
+        let value: Expr = meta.value()?.parse()?;
+        let string = |expr: &Expr| match expr {
+            Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) => Some(s.value()),
+            _ => None,
+        };
+        selection = match &value {
+            Expr::Path(path) if path.path.is_ident("None") => {
+                quote!(::teta_wot::SlotSelection::Nothing)
+            }
+            Expr::Array(array) => {
+                let names: Option<Vec<String>> = array.elems.iter().map(string).collect();
+                let names = names.ok_or_else(|| {
+                    error(array.span(), "slot names must be string literals")
+                })?;
+                quote!(::teta_wot::SlotSelection::Names(::std::vec![#(::std::string::String::from(#names)),*]))
+            }
+            other => match string(other) {
+                Some(name) => quote!(::teta_wot::SlotSelection::Name(::std::string::String::from(#name))),
+                None => {
+                    return Err(error(
+                        other.span(),
+                        "a slot's default is a Thing name (\"stage\"), a list of names ([\"a\", \"b\"]) or None",
+                    ));
+                }
+            },
+        };
+        Ok(())
+    })?;
+    Ok(selection)
+}
+
 /// Reads a field's attributes.
 fn classify(field: &Field) -> syn::Result<Kind> {
     let mut kind: Option<(Kind, &Attribute)> = None;
     let mut init: Option<Expr> = None;
     for attr in &field.attrs {
         let path = attr.path();
-        let found = if path.is_ident("property") {
-            Some(Kind::Property(Box::new(Options::parse(
-                attr,
-                &[
-                    "readonly",
-                    "default",
-                    "constraints",
-                    "title",
-                    "description",
-                    "unit",
-                    "semantic_type",
-                    "global_lock",
-                ],
-            )?)))
+        let found = if path.is_ident("property") || path.is_ident("setting") {
+            Some(Kind::Property(
+                Box::new(Options::parse(
+                    attr,
+                    &[
+                        "readonly",
+                        "default",
+                        "constraints",
+                        "title",
+                        "description",
+                        "unit",
+                        "semantic_type",
+                        "global_lock",
+                    ],
+                )?),
+                path.is_ident("setting"),
+            ))
+        } else if path.is_ident("slot") {
+            Some(Kind::Slot(slot_default(attr)?))
         } else if path.is_ident("device") {
             let (mut device_init, mut options) = (None, None);
             if !matches!(attr.meta, Meta::Path(_)) {

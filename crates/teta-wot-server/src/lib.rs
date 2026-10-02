@@ -1,19 +1,22 @@
-//! The `teta-wot` server: Things, the HTTP binding, and their lifecycle.
+//! The `wot-rs` server: Things, the HTTP binding, and their lifecycle.
 //!
 //! [`ThingServer`] puts a [`Runtime`] behind the HTTP binding and runs it:
 //!
 //! 1. **create:** the builder instantiates each Thing's definition and the
-//!    routes;
+//!    routes (in Phase 5, from a configuration file);
 //! 2. **start:** the Things start in order: their devices open, then
 //!    [`Thing::start`] runs. A failure stops what has started, is logged,
 //!    and is returned as [`ServeError::Startup`];
 //! 3. **serve** until the shutdown signal;
-//! 4. **shut down**: stop accepting connections and let requests in
-//!    progress finish, cancel unfinished invocations, wait up to the grace
+//! 4. **shut down**: stop accepting connections and let requests
+//!    in progress finish, cancel unfinished invocations, wait up to the grace
 //!    period for both, then stop the Things in reverse order and close their
 //!    devices.
 //!
-//! [`shutdown_signal`] is the default signal.
+//! [`shutdown_signal`] is the default signal: Ctrl-C, Ctrl-Break, closing
+//! the console window, logging off or shutting down on Windows (Ctrl-C
+//! elsewhere). A Windows service (Phase 10) passes its own stop signal to
+//! [`ThingServer::serve_with`].
 
 use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;
@@ -21,12 +24,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use teta_wot_core::{BuildError, FromConfig, Runtime, RuntimeBuilder, StartupError, Thing};
+use teta_wot_core::{
+    BuildError, FromConfig, Runtime, RuntimeBuilder, SlotSelection, StartupError, Thing,
+};
 use teta_wot_http::{HttpOptions, RouteError};
 use tokio::net::TcpListener;
 
 #[cfg(feature = "testing")]
 pub mod testing;
+
+pub mod cli;
+mod config;
+mod registry;
+
+pub use config::{ConfigError, RESERVED_CONFIG_THING_NAMES, ServerConfig, ThingConfig};
+pub use registry::{ThingRegistry, normalise as normalise_class_name};
 
 /// The default time to wait for requests and invocations to finish on shutdown.
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -47,7 +59,7 @@ pub enum ServerBuildError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ServeError {
-    /// A Thing failed to start.
+    /// A Thing failed to start (`startup_failure`).
     #[error(transparent)]
     Startup(#[from] StartupError),
     /// Binding or serving failed.
@@ -57,6 +69,7 @@ pub enum ServeError {
 
 /// Builds a [`ThingServer`].
 #[must_use]
+#[derive(Debug)]
 pub struct ThingServerBuilder {
     runtime: RuntimeBuilder,
     http: HttpOptions,
@@ -84,6 +97,53 @@ impl ThingServerBuilder {
         kwargs: serde_json::Value,
     ) -> Self {
         self.runtime = self.runtime.thing_from_config::<T>(name, kwargs);
+        self
+    }
+
+    /// Adds a Thing built from a configuration file entry's `args` and
+    /// `kwargs` (see `RuntimeBuilder::thing_from_args`).
+    pub fn thing_from_args<T: FromConfig>(
+        mut self,
+        name: impl Into<String>,
+        args: Vec<serde_json::Value>,
+        kwargs: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        self.runtime = self.runtime.thing_from_args::<T>(name, args, kwargs);
+        self
+    }
+
+    /// Overrides where a Thing's slots connect (the configuration's
+    /// `thing_slots`).
+    pub fn thing_slots(
+        mut self,
+        thing: impl Into<String>,
+        slots: impl IntoIterator<Item = (String, SlotSelection)>,
+    ) -> Self {
+        self.runtime = self.runtime.thing_slots(thing, slots);
+        self
+    }
+
+    /// Registers a shared service, for `Dep<T>` action parameters.
+    pub fn service<T: ?Sized + Send + Sync + 'static>(mut self, service: Arc<T>) -> Self {
+        self.runtime = self.runtime.service(service);
+        self
+    }
+
+    /// Sets the application configuration that Things can read.
+    pub fn application_config(mut self, config: serde_json::Value) -> Self {
+        self.runtime = self.runtime.application_config(config);
+        self
+    }
+
+    /// Persists settings in `folder`.
+    pub fn settings_folder(mut self, folder: impl Into<std::path::PathBuf>) -> Self {
+        self.runtime = self.runtime.settings_folder(folder);
+        self
+    }
+
+    /// The level of the "Global lock was busy" log line.
+    pub fn global_lock_log_level(mut self, level: tracing::Level) -> Self {
+        self.runtime = self.runtime.global_lock_log_level(level);
         self
     }
 
@@ -140,6 +200,68 @@ impl std::fmt::Debug for ThingServer {
 }
 
 impl ThingServer {
+    /// Starts building a server from a configuration: its Things
+    /// (built by the registry from their `cls`, `args` and `kwargs`, with
+    /// their `thing_slots`), settings folder (by default `./settings`), API
+    /// prefix, global lock and application configuration. The builder can
+    /// still be changed, for example to add services, before `build`.
+    pub fn from_config(
+        config: &ServerConfig,
+        registry: &ThingRegistry,
+    ) -> Result<ThingServerBuilder, ConfigError> {
+        for key in &config.ignored_keys {
+            tracing::warn!("the configuration key `{key}` isn't used, and is ignored");
+        }
+        let mut builder = ThingServer::builder()
+            .api_prefix(config.api_prefix.clone())
+            .global_lock(config.enable_global_lock)
+            .global_lock_log_level(config.global_lock_log_level)
+            .settings_folder(config.settings_folder_or_default());
+        if let Some(application) = &config.application_config {
+            builder = builder.application_config(application.clone());
+        }
+        if let Some(id) = &config.server_id {
+            builder = builder.server_id(id.clone());
+        }
+        let mut errors = Vec::new();
+        for (name, thing) in &config.things {
+            if !registry.contains(&thing.cls) {
+                errors.push((
+                    format!("things.{name}.cls"),
+                    format!(
+                        "No Thing type is registered as '{}'. Registered: {}",
+                        thing.cls,
+                        registry.names().join(", ")
+                    ),
+                ));
+                continue;
+            }
+            builder = registry
+                .add(
+                    builder,
+                    name,
+                    &thing.cls,
+                    thing.args.clone(),
+                    thing.kwargs.clone(),
+                )
+                .expect("checked above");
+            if !thing.thing_slots.is_empty() {
+                builder = builder.thing_slots(
+                    name.clone(),
+                    thing
+                        .thing_slots
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone())),
+                );
+            }
+        }
+        if errors.is_empty() {
+            Ok(builder)
+        } else {
+            Err(ConfigError { errors })
+        }
+    }
+
     /// Starts building a server.
     pub fn builder() -> ThingServerBuilder {
         ThingServerBuilder {

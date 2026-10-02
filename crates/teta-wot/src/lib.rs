@@ -12,6 +12,12 @@
 //!   [`Runtime`];
 //! - [`server`]: the HTTP server ([`server::ThingServer`]), which serves the
 //!   runtime over HTTP, and shuts down gracefully;
+//!   Configuration files ([`server::ServerConfig`]) with a
+//!   registry of Thing types ([`server::ThingRegistry`]), and
+//!   command line ([`server::cli`]) with its fallback server;
+//! - composition and persistence: slots ([`Slot`], [`OptSlot`], [`SlotMap`],
+//!   and interfaces declared with [`interface`]), settings saved to disk,
+//!   services ([`Dep`]) and the [`Server`] handle;
 //! - [`td`]: the Thing Description model, its builders, and the conversion
 //!   from Rust types to TD `DataSchema`s;
 //! - with the `testing` feature, [`testing`]: helpers for testing Things,
@@ -24,17 +30,19 @@
 //! `use teta_wot::prelude::*;` brings in what Thing code usually needs.
 
 pub use teta_wot_core::*;
-pub use teta_wot_macros::{Thing, thing_impl};
+pub use teta_wot_macros::{Thing, interface, thing_impl};
 pub use teta_wot_td as td;
 
 /// The HTTP server and binding.
 pub mod server {
     pub use teta_wot_http::{
-        HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id, td_id,
+        FallbackPage, HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id,
+        fallback_router, td_id,
     };
     pub use teta_wot_server::{
-        DEFAULT_SHUTDOWN_GRACE, ServeError, ServerBuildError, ThingServer, ThingServerBuilder,
-        shutdown_signal,
+        ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, ServeError,
+        ServerBuildError, ServerConfig, ThingConfig, ThingRegistry, ThingServer,
+        ThingServerBuilder, cli, normalise_class_name, shutdown_signal,
     };
 }
 
@@ -56,11 +64,12 @@ pub mod testing {
 /// What Thing code usually needs.
 pub mod prelude {
     pub use teta_wot_core::{
-        Action, ActionCtx, ActionError, CancelToken, Cancelled, Constraints, DataProperty, Device,
-        DeviceError, DeviceOptions, Driver, FromConfig, FunctionalProperty, InvocationStatus,
-        NoConfig, NoInput, Prop, PropertyError, Runtime, Thing, ThingCtx, ThingDefinition,
-        ThingRef, cancellable_sleep, check_cancelled,
+        Action, ActionCtx, ActionError, BoxFuture, CancelToken, Cancelled, Constraints,
+        DataProperty, Dep, Device, DeviceError, DeviceOptions, Driver, FromConfig,
+        FunctionalProperty, InvocationStatus, NoConfig, NoInput, OptSlot, Prop, PropertyError,
+        Runtime, Server, Slot, SlotMap, Thing, ThingCtx, ThingDefinition, ThingRef,
+        cancellable_sleep, check_cancelled,
     };
-    pub use teta_wot_macros::{Thing, thing_impl};
+    pub use teta_wot_macros::{Thing, interface, thing_impl};
     pub use teta_wot_server::ThingServer;
 }

@@ -17,8 +17,16 @@ use crate::common::{
 };
 
 /// The attributes that give a method a role.
-const ROLES: [&str; 7] = [
-    "action", "property", "setter", "resetter", "endpoint", "on_start", "on_stop",
+const ROLES: [&str; 9] = [
+    "action",
+    "property",
+    "setting",
+    "setter",
+    "resetter",
+    "endpoint",
+    "on_start",
+    "on_stop",
+    "thing_state",
 ];
 
 /// A parameter of an action.
@@ -34,6 +42,8 @@ enum Param {
     },
     /// `#[input]`: the whole input.
     Whole { ident: Ident, ty: Type },
+    /// `Dep<S>` (with `S`) or `Server` (without): injected from the server.
+    Injected(Option<Type>),
 }
 
 struct Action {
@@ -54,6 +64,7 @@ struct Property {
     options: Options,
     setter: Option<Accessor>,
     resetter: Option<Accessor>,
+    setting: bool,
 }
 
 struct Endpoint {
@@ -86,6 +97,7 @@ pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream>
     let mut endpoints: Vec<Endpoint> = Vec::new();
     let mut on_start: Option<ImplItemFn> = None;
     let mut on_stop: Option<ImplItemFn> = None;
+    let mut thing_state: Option<ImplItemFn> = None;
     let mut accessors: Vec<(Ident, bool, Accessor)> = Vec::new();
     let mut names: HashMap<String, proc_macro2::Span> = HashMap::new();
 
@@ -138,9 +150,19 @@ pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream>
                 check_name(&mut names, &mut errors, &a.name, &a.method.sig.ident);
                 actions.push(a);
             }),
-            "property" => parse_property(role, seen).map(|p| {
+            "property" | "setting" => parse_property(role, seen).map(|mut p| {
+                p.setting = role_name == "setting";
                 check_name(&mut names, &mut errors, &p.name, &p.method.sig.ident);
                 properties.push(p);
+            }),
+            "thing_state" => check_state(&seen).map(|()| {
+                if thing_state.is_some() {
+                    errors.push(error(
+                        role.span(),
+                        "only one method can be `#[thing_state]`",
+                    ));
+                }
+                thing_state = Some(seen);
             }),
             "setter" | "resetter" => parse_accessor(role, seen).map(|(target, accessor)| {
                 accessors.push((target, role_name == "setter", accessor));
@@ -227,6 +249,14 @@ pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream>
     }
     for endpoint in &endpoints {
         definition.push(endpoint_tokens(endpoint));
+    }
+    if let Some(state) = &thing_state {
+        let method = &state.sig.ident;
+        definition.push(quote! {
+            .thing_state(|__thing: &Self| {
+                ::teta_wot::__private::serde_json::to_value(__thing.#method()).unwrap_or_default()
+            })
+        });
     }
     let start = on_start.map(|m| hook_tokens(&m, true));
     let stop = on_stop.map(|m| hook_tokens(&m, false));
@@ -356,6 +386,14 @@ fn parse_action(attr: &Attribute, method: ImplItemFn) -> syn::Result<Action> {
             params.push(Param::Ctx);
             continue;
         }
+        if let Some(service) = crate::common::unwrap_type(&ty, "Dep") {
+            params.push(Param::Injected(Some(service.clone())));
+            continue;
+        }
+        if is_named(&ty, "Server") {
+            params.push(Param::Injected(None));
+            continue;
+        }
         if borrows(&ty) {
             errors.push(error(ty.span(), "an action parameter must own its data (for example `String`, not `&str`): it is deserialised from the request"));
             continue;
@@ -396,7 +434,10 @@ fn parse_action(attr: &Attribute, method: ImplItemFn) -> syn::Result<Action> {
             }
         });
     }
-    let data_params = params.iter().filter(|p| !matches!(p, Param::Ctx)).count();
+    let data_params = params
+        .iter()
+        .filter(|p| !matches!(p, Param::Ctx | Param::Injected(_)))
+        .count();
     if params.iter().any(|p| matches!(p, Param::Whole { .. })) && data_params > 1 {
         errors.push(error(
             method.sig.inputs.span(),
@@ -444,7 +485,30 @@ fn parse_property(attr: &Attribute, method: ImplItemFn) -> syn::Result<Property>
         options,
         setter: None,
         resetter: None,
+        setting: false,
     })
+}
+
+/// A `#[thing_state]` method takes only `&self`, isn't async, and returns a
+/// serialisable value.
+fn check_state(method: &ImplItemFn) -> syn::Result<()> {
+    check_method(method, "`#[thing_state]` method", Some(true)).map_err(|e| {
+        if method.sig.asyncness.is_some() {
+            error(
+                method.sig.asyncness.span(),
+                "a `#[thing_state]` method can't be `async`: it is read often, and should be quick",
+            )
+        } else {
+            e
+        }
+    })?;
+    if let Some(extra) = typed_params(method).next() {
+        return Err(error(
+            extra.span(),
+            "a `#[thing_state]` method takes only `&self`",
+        ));
+    }
+    Ok(())
 }
 
 fn parse_accessor(attr: &Attribute, method: ImplItemFn) -> syn::Result<(Ident, Accessor)> {
@@ -577,13 +641,14 @@ fn property_tokens(property: &Property, asserts: &mut Vec<TokenStream>) -> Token
     });
     let constraints = options.constraints().map(|c| quote!(.constraints(#c)));
     let readonly = options.readonly.then(|| quote!(.read_only()));
+    let setting = property.setting.then(|| quote!(.setting()));
     let described = describe(
         docstring(&property.method.attrs).as_deref(),
         &options.described,
         true,
     );
     quote! {
-        .property(#name, #make #setter #resetter #default #constraints #readonly #described)
+        .property(#name, #make #setter #resetter #default #constraints #readonly #setting #described)
     }
 }
 
@@ -689,20 +754,55 @@ fn action_tokens(
 
     // The call, shared by the invocation handler and the in-process wrapper.
     let has_ctx = action.params.iter().any(|p| matches!(p, Param::Ctx));
-    let args = action.params.iter().map(|p| match p {
-        Param::Ctx if action.options.blocking => quote!(__ctx_arg),
-        Param::Ctx => quote!(__ctx),
-        Param::Field { ident, .. } => quote!(__input.#ident),
-        Param::Whole { .. } => quote!(__input),
-    });
+    // Injected values are taken from the server before the call.
+    let mut injections = Vec::new();
+    let args: Vec<TokenStream> = action
+        .params
+        .iter()
+        .enumerate()
+        .map(|(index, p)| match p {
+            Param::Ctx if action.options.blocking => quote!(__ctx_arg),
+            Param::Ctx => quote!(__ctx),
+            Param::Field { ident, .. } => quote!(__input.#ident),
+            Param::Whole { .. } => quote!(__input),
+            Param::Injected(service) => {
+                let value = format_ident!("__injected_{}", index);
+                let make = match service {
+                    Some(service) => quote! {
+                        ::teta_wot::Dep::new(__ctx.server().service::<#service>().ok_or_else(|| {
+                            ::teta_wot::ActionError::from(::teta_wot::__private::anyhow::anyhow!(
+                                "the service `{}` isn't registered with the server",
+                                ::core::any::type_name::<#service>()
+                            ))
+                        })?)
+                    },
+                    None => quote!(::core::clone::Clone::clone(__ctx.server())),
+                };
+                injections.push(quote!(let #value = #make;));
+                quote!(#value)
+            }
+        })
+        .collect();
+    let requires: Vec<TokenStream> = action
+        .params
+        .iter()
+        .filter_map(|p| match p {
+            Param::Injected(Some(service)) => Some(quote!(.requires_service::<#service>())),
+            _ => None,
+        })
+        .collect();
     let call = if action.options.blocking {
         let ctx_arg = has_ctx.then(|| quote!(let __ctx_arg = ::core::clone::Clone::clone(&__ctx);));
         quote!({
+            #(#injections)*
             #ctx_arg
             __ctx.blocking(move |_| __thing.#method(#(#args),*)).await
         })
     } else {
-        quote!(__thing.#method(#(#args),*).await)
+        quote!({
+            #(#injections)*
+            __thing.#method(#(#args),*).await
+        })
     };
     let body = output.wrap(call, &error_ty);
     let handler = quote! {
@@ -720,6 +820,7 @@ fn action_tokens(
     });
     let definition = quote! {
         .action(#name, ::teta_wot::Action::new(#handler) #described #retention)
+        #(#requires)*
     };
 
     // The in-process wrapper.
@@ -727,7 +828,7 @@ fn action_tokens(
         .params
         .iter()
         .filter_map(|p| match p {
-            Param::Ctx => None,
+            Param::Ctx | Param::Injected(_) => None,
             Param::Field { ident, ty, .. } | Param::Whole { ident, ty } => {
                 Some(quote!(#ident: #ty))
             }

@@ -23,6 +23,7 @@ use crate::action::ActionError;
 use crate::cancel::{CancelToken, Cancelled};
 use crate::lock::{GlobalLock, GlobalLockBusy, GlobalLockGuard};
 use crate::logs::{LogBuffer, LogRecord};
+use crate::server::Server;
 
 tokio::task_local! {
     static SCOPE: InvocationScope;
@@ -139,12 +140,13 @@ pub enum HoldLockError {
 }
 
 /// What an action gets besides its input: its invocation's identity,
-/// cancellation, log and the global lock.
+/// cancellation, log and the global lock and the server.
 #[derive(Debug, Clone)]
 pub struct ActionCtx {
     scope: InvocationScope,
     thing: Arc<str>,
     lock: Option<Arc<GlobalLock>>,
+    server: Server,
 }
 
 impl ActionCtx {
@@ -152,8 +154,20 @@ impl ActionCtx {
         scope: InvocationScope,
         thing: Arc<str>,
         lock: Option<Arc<GlobalLock>>,
+        server: Server,
     ) -> Self {
-        Self { scope, thing, lock }
+        Self {
+            scope,
+            thing,
+            lock,
+            server,
+        }
+    }
+
+    /// The server: other Things, services, the application configuration
+    /// and the state of every Thing.
+    pub fn server(&self) -> &Server {
+        &self.server
     }
 
     /// The invocation's ID.
@@ -216,7 +230,12 @@ impl ActionCtx {
         R: Send + 'static,
     {
         let scope = self.scope.child();
-        let child = ActionCtx::new(scope.clone(), Arc::clone(&self.thing), self.lock.clone());
+        let child = ActionCtx::new(
+            scope.clone(),
+            Arc::clone(&self.thing),
+            self.lock.clone(),
+            self.server.clone(),
+        );
         let id = scope.id;
         let cancel = scope.cancel.clone();
         let logs = Arc::clone(&scope.logs);

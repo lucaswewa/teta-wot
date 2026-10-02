@@ -7,6 +7,11 @@
 //! - [`FromConfig`]: building a Thing from its typed configuration.
 //! - [`ThingRef`]: in-process calls between Things, with the same
 //!   validation and locking as HTTP requests.
+//! - [`slots`]: [`Slot`], [`OptSlot`] and [`SlotMap`] fields connecting
+//!   Things to each other, and the start order they imply.
+//! - [`settings`]: settings files.
+//! - [`Server`] and [`Dep`]: what a Thing sees of its server (other Things,
+//!   services, the application configuration, every Thing's state).
 //! - [`Prop<T>`], [`DataProperty`] and [`FunctionalProperty`]: property
 //!   cells with validation and change notification, and properties backed
 //!   by async getters and setters.
@@ -39,6 +44,9 @@ pub mod problem;
 pub mod property;
 mod reserved;
 pub mod runtime;
+pub mod server;
+pub mod settings;
+pub mod slots;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod thing;
@@ -71,9 +79,13 @@ pub use reserved::{RESERVED_AFFORDANCE_NAMES, affordance_name_problem};
 pub use runtime::{
     ActionEntry, BuildError, Runtime, RuntimeBuilder, StartupError, TdOptions, ThingHandle,
 };
+pub use server::{Dep, Server};
+pub use settings::to_settings_json;
+pub use slots::{OptSlot, Slot, SlotField, SlotKind, SlotMap, SlotSelection, SlotTarget};
 pub use teta_wot_td::Constraints;
 pub use thing::{DefinitionError, Thing, ThingCtx, ThingDefinition, split_docstring};
 pub use validate::{LocItem, ValidationError, ValidationIssue};
 
-/// A boxed, sendable future.
-pub(crate) type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+/// A boxed, sendable future: what the methods of a dyn-compatible trait
+/// return in place of `async fn` (for `#[teta_wot::interface]` traits).
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

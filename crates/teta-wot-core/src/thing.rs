@@ -1,12 +1,20 @@
 //! Thing types and their definitions.
 
+use std::any::{Any, TypeId};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+use serde_json::Value;
 
 use crate::action::ActionSpec;
 use crate::device::{Device, DeviceAccess, DeviceControl, Driver};
 use crate::endpoint::EndpointSpec;
+use crate::inprocess::ThingRef;
 use crate::property::PropertySpec;
+use crate::runtime::ThingHandle;
+use crate::server::Server;
+use crate::slots::{SlotAccess, SlotControl, SlotField, SlotSelection};
 
 /// A Thing type.
 ///
@@ -40,24 +48,44 @@ pub trait Thing: Send + Sync + Sized + 'static {
     }
 }
 
-/// What a Thing knows about its place on the server.
+/// What a Thing knows about its place on the server: its lifecycle hooks
+/// receive one.
 #[derive(Debug, Clone)]
 pub struct ThingCtx {
     name: Arc<str>,
+    server: Server,
 }
 
 impl ThingCtx {
-    pub(crate) fn new(name: Arc<str>) -> Self {
-        Self { name }
+    pub(crate) fn new(name: Arc<str>, server: Server) -> Self {
+        Self { name, server }
     }
 
     /// The name the Thing is served under.
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// The server: other Things, services, the application configuration.
+    pub fn server(&self) -> &Server {
+        &self.server
+    }
+
+    /// The Thing's own folder for persistent files, if the
+    /// server persists settings.
+    pub fn settings_folder(&self) -> Option<PathBuf> {
+        self.server
+            .settings_folder()
+            .map(|folder| folder.join(&*self.name))
+    }
 }
 
 type DeviceBuild<T> = Box<dyn FnOnce(&Arc<T>) -> Arc<dyn DeviceControl> + Send>;
+type SlotBuild<T> = Box<dyn FnOnce(&Arc<T>) -> Arc<dyn SlotControl> + Send>;
+/// Makes a provided interface (an `Arc<dyn Trait>`, boxed as `Any`) for a Thing.
+pub(crate) type InterfaceBuild =
+    Arc<dyn Fn(&Arc<ThingHandle>) -> Option<Box<dyn Any + Send + Sync>> + Send + Sync>;
+type StateFn<T> = Box<dyn Fn(&T) -> Value + Send + Sync>;
 
 /// The affordances and metadata of a Thing type, built with chained calls.
 ///
@@ -94,6 +122,11 @@ pub struct ThingDefinition<T> {
     pub(crate) actions: Vec<(String, ActionSpec<T>)>,
     pub(crate) devices: Vec<(String, DeviceBuild<T>)>,
     pub(crate) endpoints: Vec<EndpointSpec<T>>,
+    pub(crate) class_name: Option<String>,
+    pub(crate) slots: Vec<(String, SlotBuild<T>)>,
+    pub(crate) interfaces: Vec<(TypeId, InterfaceBuild)>,
+    pub(crate) services: Vec<(TypeId, &'static str)>,
+    pub(crate) thing_state: Option<StateFn<T>>,
 }
 
 impl<T: Thing> ThingDefinition<T> {
@@ -108,6 +141,11 @@ impl<T: Thing> ThingDefinition<T> {
             actions: Vec::new(),
             devices: Vec::new(),
             endpoints: Vec::new(),
+            class_name: None,
+            slots: Vec::new(),
+            interfaces: Vec::new(),
+            services: Vec::new(),
+            thing_state: None,
         }
     }
 
@@ -134,6 +172,68 @@ impl<T: Thing> ThingDefinition<T> {
     /// `teta_wot::http::Endpoint`. Endpoints aren't in the Thing Description.
     pub fn endpoint(mut self, endpoint: impl Into<EndpointSpec<T>>) -> Self {
         self.endpoints.push(endpoint.into());
+        self
+    }
+
+    /// Sets the class name used in the settings file name,
+    /// `Settings-{class_name}.json`.
+    pub fn class_name(mut self, class_name: impl Into<String>) -> Self {
+        self.class_name = Some(class_name.into());
+        self
+    }
+
+    /// Adds a slot: a field ([`Slot`](crate::Slot),
+    /// [`OptSlot`](crate::OptSlot) or [`SlotMap`](crate::SlotMap)) that the
+    /// runtime connects to other Things, by default as `default` says, or as
+    /// the configuration's `thing_slots` overrides.
+    pub fn slot<F: SlotField>(
+        mut self,
+        name: impl Into<String>,
+        accessor: fn(&T) -> &F,
+        default: SlotSelection,
+    ) -> Self {
+        self.slots.push((
+            name.into(),
+            Box::new(move |thing| {
+                Arc::new(SlotAccess {
+                    thing: Arc::clone(thing),
+                    accessor,
+                    default,
+                }) as Arc<dyn SlotControl>
+            }),
+        ));
+        self
+    }
+
+    /// Declares that this Thing provides the interface `I` (a `dyn Trait`
+    /// declared with `#[wot::interface]`), so that slots of that interface
+    /// can connect to it. `cast` turns a [`ThingRef`] to the Thing into the
+    /// interface: usually `|r| Arc::new(r)`, with the trait implemented for
+    /// `ThingRef<Self>`.
+    pub fn interface<I: ?Sized + Send + Sync + 'static>(
+        mut self,
+        cast: fn(ThingRef<T>) -> Arc<I>,
+    ) -> Self {
+        let build: InterfaceBuild = Arc::new(move |handle: &Arc<ThingHandle>| {
+            let thing = ThingHandle::thing_ref::<T>(handle)?;
+            Some(Box::new(cast(thing)) as Box<dyn Any + Send + Sync>)
+        });
+        self.interfaces.push((TypeId::of::<I>(), build));
+        self
+    }
+
+    /// Declares that the Thing needs the service `S` (for a `Dep<S>`
+    /// parameter): the runtime refuses to build without it.
+    pub fn requires_service<S: ?Sized + Send + Sync + 'static>(mut self) -> Self {
+        self.services
+            .push((TypeId::of::<S>(), std::any::type_name::<S>()));
+        self
+    }
+
+    /// Sets how the Thing summarises its state for
+    /// [`Server::thing_states`].
+    pub fn thing_state(mut self, state: impl Fn(&T) -> Value + Send + Sync + 'static) -> Self {
+        self.thing_state = Some(Box::new(state));
         self
     }
 

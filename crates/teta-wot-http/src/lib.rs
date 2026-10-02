@@ -17,6 +17,7 @@
 
 mod cors;
 mod endpoint;
+mod fallback;
 mod handlers;
 mod render;
 mod routes;
@@ -28,6 +29,7 @@ use teta_wot_core::Runtime;
 use uuid::Uuid;
 
 pub use endpoint::Endpoint;
+pub use fallback::{FallbackPage, fallback_router};
 pub use routes::RESERVED_THING_NAMES;
 
 // Custom endpoints are written with this axum; re-exported so that Thing

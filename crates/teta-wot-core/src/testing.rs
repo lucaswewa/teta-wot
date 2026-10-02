@@ -5,6 +5,7 @@ use std::sync::{Arc, Once};
 
 use crate::context::{ActionCtx, InvocationScope};
 use crate::lock::GlobalLock;
+use crate::server::Server;
 
 /// Installs the global `tracing` subscriber with the invocation log layer
 /// (see [`crate::logging::init`]), once per process. Tests that check
@@ -20,12 +21,22 @@ pub fn init_tracing() {
 /// function directly. Cancel it with `ctx.cancel_token().cancel()`, and
 /// read its log with `ctx.logs()` (after [`init_tracing`]).
 pub fn action_ctx(thing: &str) -> ActionCtx {
-    ActionCtx::new(InvocationScope::fake(), thing.into(), None)
+    ActionCtx::new(
+        InvocationScope::fake(),
+        thing.into(),
+        None,
+        Server::detached(),
+    )
 }
 
 /// Like [`action_ctx`], with a global lock.
 pub fn action_ctx_with_lock(thing: &str, lock: Arc<GlobalLock>) -> ActionCtx {
-    ActionCtx::new(InvocationScope::fake(), thing.into(), Some(lock))
+    ActionCtx::new(
+        InvocationScope::fake(),
+        thing.into(),
+        Some(lock),
+        Server::detached(),
+    )
 }
 
 /// Runs `future` in `ctx`'s invocation scope and span, as the runtime runs an

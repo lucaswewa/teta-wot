@@ -1,0 +1,17 @@
+[package]
+name = "thing-slots"
+description = "Example: composing Things with slots, and swapping one camera for another through configuration."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+teta-wot = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

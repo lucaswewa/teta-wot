@@ -1,13 +1,15 @@
 //! The runtime: the registry of running Things, invocations and lifecycle.
 
-use std::any::Any;
+use std::any::{Any, TypeId};
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use teta_wot_td::{
     ActionAffordance, DataSchema, Form, Operation, PropertyAffordance, TdError, ThingDescription,
 };
@@ -28,7 +30,10 @@ use crate::lock::{DEFAULT_LOCK_TIMEOUT, GlobalLock};
 use crate::logs::LogBuffer;
 use crate::property::PropertyEntry;
 use crate::reserved::affordance_name_problem;
-use crate::thing::{DefinitionError, Thing, ThingCtx};
+use crate::server::{Server, ServerShared, Service};
+use crate::settings::SettingsStore;
+use crate::slots::{SlotControl, SlotSelection};
+use crate::thing::{DefinitionError, InterfaceBuild, Thing, ThingCtx};
 use crate::validate::{LocItem, ValidationError};
 
 /// State shared by every Thing on a runtime.
@@ -37,6 +42,7 @@ pub(crate) struct Shared {
     pub(crate) lock_log_level: Level,
     pub(crate) broker: Arc<MessageBroker>,
     pub(crate) invocations: Arc<InvocationManager>,
+    pub(crate) server: Server,
 }
 
 /// A runtime can't be built.
@@ -66,7 +72,28 @@ pub enum BuildError {
         /// The Thing.
         thing: String,
         /// What is wrong.
-        error: serde_json::Error,
+        error: String,
+    },
+    /// A slot can't be connected (`ThingSlotError`).
+    #[error("{0}")]
+    Slot(String),
+    /// A Thing needs a service (a `Dep<T>` parameter) that isn't registered.
+    #[error(
+        "Thing `{thing}` needs the service `{service}`, which isn't registered with the server"
+    )]
+    MissingService {
+        /// The Thing.
+        thing: String,
+        /// The service's type.
+        service: String,
+    },
+    /// A Thing's settings folder can't be created.
+    #[error("couldn't create the settings folder {path}: {error}")]
+    SettingsFolder {
+        /// The folder.
+        path: String,
+        /// Why.
+        error: std::io::Error,
     },
 }
 
@@ -89,6 +116,10 @@ pub struct RuntimeBuilder {
     lock_timeout: Duration,
     lock_log_level: Level,
     things: Vec<(String, ThingFactory)>,
+    slot_overrides: HashMap<String, IndexMap<String, SlotSelection>>,
+    services: HashMap<TypeId, Service>,
+    application_config: Option<Value>,
+    settings_folder: Option<PathBuf>,
 }
 
 impl fmt::Debug for RuntimeBuilder {
@@ -141,35 +172,124 @@ impl RuntimeBuilder {
 
     /// Adds a Thing built from its configuration: `kwargs` is
     /// deserialised into `T::Config` when the runtime is built.
-    pub fn thing_from_config<T: FromConfig>(
+    pub fn thing_from_config<T: FromConfig>(self, name: impl Into<String>, kwargs: Value) -> Self {
+        let kwargs = match kwargs {
+            Value::Object(kwargs) => kwargs,
+            Value::Null => Map::new(),
+            other => {
+                let name = name.into();
+                return self.failing(
+                    name.clone(),
+                    format!("kwargs must be an object, not {other}"),
+                );
+            }
+        };
+        self.thing_from_args::<T>(name, Vec::new(), kwargs)
+    }
+
+    /// Adds a Thing built from a configuration file entry's `args` and
+    /// `kwargs`. The Thing's `Config` is deserialised from `kwargs` (an
+    /// object), or from `args` (a list, field by field) when there are no
+    /// `kwargs`; giving both is an error.
+    pub fn thing_from_args<T: FromConfig>(
         mut self,
         name: impl Into<String>,
-        kwargs: Value,
+        args: Vec<Value>,
+        kwargs: Map<String, Value>,
     ) -> Self {
         let name = name.into();
         let thing_name = name.clone();
         self.things.push((
             name,
             Box::new(move |shared| {
-                let config = serde_json::from_value::<T::Config>(kwargs).map_err(|error| {
-                    BuildError::InvalidConfig {
-                        thing: thing_name.clone(),
-                        error,
+                let invalid = |error: String| BuildError::InvalidConfig {
+                    thing: thing_name.clone(),
+                    error,
+                };
+                let value = match (args.is_empty(), kwargs.is_empty()) {
+                    (false, false) => {
+                        return Err(invalid(
+                            "use either args or kwargs, not both: a Rust Thing's configuration is one typed value".to_owned(),
+                        ));
                     }
-                })?;
+                    (false, true) => Value::Array(args),
+                    (true, _) => Value::Object(kwargs),
+                };
+                let config = serde_json::from_value::<T::Config>(value)
+                    .map_err(|error| invalid(error.to_string()))?;
                 ThingHandle::instantiate(&thing_name, Arc::new(T::from_config(config)), shared)
             }),
         ));
         self
     }
 
-    /// Checks the names, builds each Thing's registry entry and returns the runtime.
+    fn failing(mut self, name: String, error: String) -> Self {
+        let thing = name.clone();
+        self.things.push((
+            name,
+            Box::new(move |_| Err(BuildError::InvalidConfig { thing, error })),
+        ));
+        self
+    }
+
+    /// Overrides where a Thing's slots connect (the configuration's
+    /// `thing_slots` for that Thing), by slot name.
+    pub fn thing_slots(
+        mut self,
+        thing: impl Into<String>,
+        slots: impl IntoIterator<Item = (String, SlotSelection)>,
+    ) -> Self {
+        self.slot_overrides
+            .entry(thing.into())
+            .or_default()
+            .extend(slots);
+        self
+    }
+
+    /// Registers a shared service, which actions receive as `Dep<T>`
+    /// parameters. `T` may be a `dyn Trait`.
+    pub fn service<T: ?Sized + Send + Sync + 'static>(mut self, service: Arc<T>) -> Self {
+        self.services.insert(
+            TypeId::of::<T>(),
+            Service {
+                value: Box::new(service),
+                type_name: std::any::type_name::<T>(),
+            },
+        );
+        self
+    }
+
+    /// Sets the application configuration (the configuration file's
+    /// `application_config`), which Things read with
+    /// [`Server::application_config`].
+    pub fn application_config(mut self, config: Value) -> Self {
+        self.application_config = Some(config);
+        self
+    }
+
+    /// Persists settings in `folder`: each Thing gets `{folder}/{name}/`,
+    /// and its settings file there. Without a folder, settings
+    /// are ordinary properties.
+    pub fn settings_folder(mut self, folder: impl Into<PathBuf>) -> Self {
+        self.settings_folder = Some(folder.into());
+        self
+    }
+
+    /// Checks the names, builds each Thing's registry entry, connects the
+    /// slots and returns the runtime.
     pub fn build(self) -> Result<Runtime, BuildError> {
+        let server = Server::new(ServerShared {
+            things: std::sync::OnceLock::new(),
+            services: self.services,
+            application_config: self.application_config,
+            settings_folder: self.settings_folder,
+        });
         let shared = Arc::new(Shared {
             lock: self.global_lock.then(|| GlobalLock::new(self.lock_timeout)),
             lock_log_level: self.lock_log_level,
             broker: Arc::new(MessageBroker::new()),
             invocations: Arc::new(InvocationManager::new()),
+            server: server.clone(),
         });
         let mut things = IndexMap::new();
         for (name, factory) in self.things {
@@ -184,11 +304,64 @@ impl RuntimeBuilder {
                 return Err(BuildError::DuplicateThing(name));
             }
             let handle = factory(&shared)?;
+            for (service, type_name) in &handle.services {
+                if !server.shared.services.contains_key(service) {
+                    return Err(BuildError::MissingService {
+                        thing: name.clone(),
+                        service: (*type_name).to_owned(),
+                    });
+                }
+            }
+            // a settings folder for every Thing.
+            if let Some(folder) = server.settings_folder() {
+                let folder = folder.join(&name);
+                std::fs::create_dir_all(&folder).map_err(|error| BuildError::SettingsFolder {
+                    path: folder.display().to_string(),
+                    error,
+                })?;
+            }
             things.insert(name, Arc::new(handle));
         }
+
+        let mut dependencies: IndexMap<String, Vec<String>> = IndexMap::new();
+        for (name, thing) in &things {
+            let overrides = self.slot_overrides.get(name);
+            for configured in overrides.into_iter().flat_map(|o| o.keys()) {
+                if !thing.slots.iter().any(|(slot, _)| slot == configured) {
+                    tracing::warn!(
+                        "`thing_slots` of `{name}` configures `{configured}`, which isn't one of its slots"
+                    );
+                }
+            }
+            for (slot_name, slot) in &thing.slots {
+                let configured = overrides.and_then(|o| o.get(slot_name));
+                let connected =
+                    crate::slots::connect(name, slot_name, &**slot, &things, configured)
+                        .map_err(BuildError::Slot)?;
+                dependencies
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(connected);
+            }
+        }
+        let names: Vec<String> = things.keys().cloned().collect();
+        let start_order = crate::slots::start_order(&names, &dependencies).unwrap_or_else(|cycle| {
+            tracing::warn!(
+                "the slots of {cycle:?} depend on each other in a cycle: starting every Thing in configuration order"
+            );
+            names.clone()
+        });
+
+        let _ = server.shared.things.set(
+            things
+                .iter()
+                .map(|(name, handle)| (name.clone(), Arc::downgrade(handle)))
+                .collect(),
+        );
         Ok(Runtime {
             shared,
             things,
+            start_order,
             started: Mutex::new(Vec::new()),
         })
     }
@@ -199,6 +372,7 @@ impl RuntimeBuilder {
 pub struct Runtime {
     shared: Arc<Shared>,
     things: IndexMap<String, Arc<ThingHandle>>,
+    start_order: Vec<String>,
     started: Mutex<Vec<Arc<ThingHandle>>>,
 }
 
@@ -218,6 +392,10 @@ impl Runtime {
             lock_timeout: DEFAULT_LOCK_TIMEOUT,
             lock_log_level: Level::INFO,
             things: Vec::new(),
+            slot_overrides: HashMap::new(),
+            services: HashMap::new(),
+            application_config: None,
+            settings_folder: None,
         }
     }
 
@@ -252,11 +430,27 @@ impl Runtime {
         self.shared.lock.as_ref()
     }
 
-    /// Starts the Things in order: for each, its devices open and then
-    /// [`Thing::start`] runs. If one fails, the Things already started stop
-    /// in reverse order and the failure is returned.
+    /// The order the Things start in: the Things a Thing's slots connect to
+    /// first, otherwise configuration order. They stop in reverse.
+    pub fn start_order(&self) -> &[String] {
+        &self.start_order
+    }
+
+    /// The server handle that the Things see.
+    pub fn server(&self) -> &Server {
+        &self.shared.server
+    }
+
+    /// Loads every Thing's settings, then starts the Things in
+    /// [`start_order`](Self::start_order): for each, its devices open and
+    /// then [`Thing::start`] runs. If one fails, the Things already started
+    /// stop in reverse order and the failure is returned.
     pub async fn start(&self) -> Result<(), StartupError> {
         for thing in self.things.values() {
+            thing.load_settings().await;
+        }
+        for name in &self.start_order {
+            let thing = &self.things[name];
             if let Err(error) = thing.start().await {
                 self.stop().await;
                 return Err(StartupError {
@@ -344,6 +538,13 @@ pub struct ThingHandle {
     actions: IndexMap<String, ActionEntry>,
     endpoints: Vec<EndpointEntry>,
     devices: Vec<(String, Arc<dyn DeviceControl>)>,
+    class_name: String,
+    slots: Vec<(String, Arc<dyn SlotControl>)>,
+    interfaces: Vec<(TypeId, InterfaceBuild)>,
+    services: Vec<(TypeId, &'static str)>,
+    thing_state: Option<Box<dyn Fn() -> Value + Send + Sync>>,
+    settings: Option<Arc<SettingsStore>>,
+    server: Server,
     lifecycle: Arc<dyn Lifecycle>,
     instance: Arc<dyn Any + Send + Sync>,
 }
@@ -383,10 +584,19 @@ impl ThingHandle {
             }
         };
 
+        let class_name = definition
+            .class_name
+            .clone()
+            .unwrap_or_else(|| definition.title.clone());
+        let settings = shared
+            .server
+            .settings_folder()
+            .map(|folder| Arc::new(SettingsStore::new(folder, &thing_name, &class_name)));
+
         let mut properties = IndexMap::new();
         for (property_name, spec) in definition.properties {
             check(&property_name)?;
-            let handler = (spec.build)(&thing, name, &property_name, shared)?;
+            let handler = (spec.build)(&thing, name, &property_name, shared, settings.as_ref())?;
             let meta = spec.meta;
             properties.insert(
                 property_name.clone(),
@@ -455,6 +665,15 @@ impl ThingHandle {
             .into_iter()
             .map(|(device_name, build)| (device_name, build(&thing)))
             .collect();
+        let slots = definition
+            .slots
+            .into_iter()
+            .map(|(slot_name, build)| (slot_name, build(&thing)))
+            .collect();
+        let thing_state = definition.thing_state.map(|state| {
+            let thing = Arc::clone(&thing);
+            Box::new(move || state(&thing)) as Box<dyn Fn() -> Value + Send + Sync>
+        });
 
         Ok(Self {
             name: thing_name,
@@ -466,9 +685,56 @@ impl ThingHandle {
             actions,
             endpoints,
             devices,
+            class_name,
+            slots,
+            interfaces: definition.interfaces,
+            services: definition.services,
+            thing_state,
+            settings: settings.filter(|s| s.has_settings()),
+            server: shared.server.clone(),
             lifecycle: Arc::new(TypedLifecycle(Arc::clone(&thing))),
             instance: thing,
         })
+    }
+
+    /// The class name used for the settings file (`Settings-{class}.json`).
+    pub fn class_name(&self) -> &str {
+        &self.class_name
+    }
+
+    /// The Thing's settings file, if it has settings and the server has a
+    /// settings folder.
+    pub fn settings_file(&self) -> Option<&std::path::Path> {
+        self.settings.as_ref().map(|s| s.path())
+    }
+
+    /// Loads the Thing's settings file, if it has one.
+    pub(crate) async fn load_settings(&self) {
+        if let Some(settings) = &self.settings {
+            settings.load().await;
+        }
+    }
+
+    /// The Thing's state, for [`Server::thing_states`]: its
+    /// `thing_state` function's value, or `{}`.
+    pub fn thing_state(&self) -> Value {
+        self.thing_state
+            .as_ref()
+            .map_or_else(|| Value::Object(Map::new()), |state| state())
+    }
+
+    /// The Thing as the interface `I`, if it declared that it provides it.
+    pub fn interface<I: ?Sized + 'static>(this: &Arc<Self>) -> Option<Arc<I>> {
+        let (_, build) = this
+            .interfaces
+            .iter()
+            .find(|(key, _)| *key == TypeId::of::<I>())?;
+        build(this)?.downcast::<Arc<I>>().ok().map(|boxed| *boxed)
+    }
+
+    /// The names of the Thing's slots.
+    pub fn slot_names(&self) -> impl Iterator<Item = &str> {
+        self.slots.iter().map(|(name, _)| name.as_str())
     }
 
     /// The name the Thing is served under.
@@ -538,7 +804,7 @@ impl ThingHandle {
         }
         if let Err(error) = self
             .lifecycle
-            .start(ThingCtx::new(Arc::clone(&self.name)))
+            .start(ThingCtx::new(Arc::clone(&self.name), self.server.clone()))
             .await
         {
             close_all(opened).await;
@@ -549,7 +815,7 @@ impl ThingHandle {
 
     async fn stop(&self) {
         self.lifecycle
-            .stop(ThingCtx::new(Arc::clone(&self.name)))
+            .stop(ThingCtx::new(Arc::clone(&self.name), self.server.clone()))
             .await;
         close_all(self.devices.iter().map(|(_, d)| d).collect()).await;
     }
@@ -703,7 +969,7 @@ impl ActionEntry {
     pub fn invoke(&self, input: Value) -> Result<Arc<Invocation>, ValidationError> {
         let shared = &self.shared;
         shared.invocations.expire();
-        // Treats a `null` body as missing, which only inputs that
+        // treats a `null` body as missing, which only inputs that
         // may be `null` (such as `NoInput`) accept.
         if input.is_null() && !accepts_null(self.handler.input_schema()) {
             return Err(ValidationError::missing(
@@ -718,7 +984,12 @@ impl ActionEntry {
         let cancel = CancelToken::new();
         let logs = LogBuffer::register(id);
         let scope = InvocationScope::new(id, lock_owner, cancel.clone(), Arc::clone(&logs));
-        let ctx = ActionCtx::new(scope.clone(), Arc::clone(&self.thing), shared.lock.clone());
+        let ctx = ActionCtx::new(
+            scope.clone(),
+            Arc::clone(&self.thing),
+            shared.lock.clone(),
+            shared.server.clone(),
+        );
         let (echo, future) = self.handler.prepare(&input, ctx)?;
 
         let invocation = Arc::new(Invocation::new(
@@ -791,6 +1062,7 @@ impl ActionEntry {
             scope.clone(),
             Arc::clone(&self.thing),
             self.shared.lock.clone(),
+            self.shared.server.clone(),
         );
         let _guard = match (&self.shared.lock, self.meta.global_lock) {
             (Some(lock), true) => Some(lock.acquire(scope.lock_owner()).await?),

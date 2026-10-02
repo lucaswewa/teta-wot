@@ -8,13 +8,48 @@ use proc_macro::TokenStream;
 
 mod common;
 mod derive;
+mod interface;
 mod thing_impl;
+
+/// Makes a trait an interface that slots can target (`Slot<dyn Trait>`,
+/// `OptSlot<dyn Trait>`, `SlotMap<dyn Trait>`), filled by any Thing that
+/// lists it in `#[thing(interfaces(Trait))]`.
+///
+/// The trait needs `Send + Sync` supertraits and must be dyn-compatible:
+/// write async methods as returning a boxed future. A Thing provides it by
+/// implementing it for `ThingRef<Self>`, so calls through the interface can
+/// use the in-process action wrappers, with their validation and locking.
+///
+/// ```ignore
+/// #[wot::interface]
+/// pub trait CameraApi: Send + Sync {
+///     fn sharpness(&self) -> wot::BoxFuture<'_, Result<f64, ActionError>>;
+/// }
+///
+/// #[derive(Thing)]
+/// #[thing(interfaces(CameraApi))]
+/// pub struct SimCamera { /* … */ }
+///
+/// impl CameraApi for ThingRef<SimCamera> {
+///     fn sharpness(&self) -> wot::BoxFuture<'_, Result<f64, ActionError>> {
+///         self.measure_sharpness() // a generated `SimCameraActions` method
+///     }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(args);
+    let item = syn::parse_macro_input!(input as syn::ItemTrait);
+    interface::expand(args, item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// Makes a struct a Thing: its fields become properties and devices, and it
 /// can be built from a typed configuration.
 ///
 /// ```ignore
-/// use teta_wot::prelude::*;
+/// use wot::prelude::*;
 ///
 /// /// A computer-controlled light, our first example Thing.
 /// #[derive(Thing)]
@@ -38,7 +73,9 @@ mod thing_impl;
 ///   expressions. Without it, the Thing takes no configuration and also
 ///   implements `Default`;
 /// - `semantic_type = "…"` (repeatable): the TD's `@type`;
-/// - `context(prefix = "iri", …)`: prefixes for the TD's `@context`.
+/// - `context(prefix = "iri", …)`: prefixes for the TD's `@context`;
+/// - `interfaces(Trait, …)`: the `#[wot::interface]` traits the Thing
+///   provides to slots, each implemented for `ThingRef<Self>`.
 ///
 /// **Fields.**
 ///
@@ -53,7 +90,15 @@ mod thing_impl;
 ///   or a `Result<D, _>`) on the device's thread; without it, `D::default()`.
 /// - Other fields are initialised with `#[thing(init = expr)]`, or
 ///   `Default::default()`.
-/// - `#[setting]`, `#[event]`, `#[slot]` and `#[stream]` are reserved for
+/// - `#[setting(…)]` on a `Prop<T>` field: a data property saved to the
+///   Thing's settings file after every change and loaded when the server
+///   starts. Options are those of `#[property]`.
+/// - `#[slot]` on a `Slot<T>`, `OptSlot<T>` or `SlotMap<T>` field: filled
+///   with other Things when the server is built. `T` is a Thing
+///   type or a `dyn` interface. By default it connects by type;
+///   `default = "name"`, `default = ["a", "b"]` or `default = None` change
+///   that, and the configuration's `thing_slots` overrides it.
+/// - `#[event]` and `#[stream]` are reserved for
 ///   later phases of the plan.
 ///
 /// Methods (actions, functional properties, endpoints, lifecycle hooks) go in
@@ -96,9 +141,11 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///
 /// - `#[action(…)]`: an action. Parameters become the input's fields;
 ///   `#[param(default)]`, `#[param(default = expr)]` and
-///   `#[param(description = "…")]` describe them. A parameter of type
-///   `ActionCtx` receives the invocation context; `#[input]` on the only
-///   parameter makes its type the whole input. It may return a value, a
+///   `#[param(description = "…")]` describe them. Parameters of these types
+///   are supplied by the runtime rather than the input: `ActionCtx` (the
+///   invocation context), `Server` (the server) and `Dep<S>` (a registered
+///   service). `#[input]` on the only other parameter makes its
+///   type the whole input. It may return a value, a
 ///   `Result<T, E>` (with `E: Into<ActionError>`), or nothing. Options:
 ///   `blocking`, `retention = seconds`, `global_lock = false`, `title`,
 ///   `description`, `semantic_type`.
@@ -106,7 +153,9 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///   and returning `T` or `Result<T, E>` (with `E: Into<PropertyError>`).
 ///   `#[setter(name)]` and `#[resetter(name)]` (optionally with `blocking`)
 ///   add a setter and a resetter to the property `name`. Options are those
-///   of a data property, plus `blocking`.
+///   of a data property, plus `blocking`. `#[setting(…)]` in place of
+///   `#[property(…)]` makes it a setting, saved after each write through the
+///   property.
 /// - `#[endpoint(get, "path")]`: a custom HTTP endpoint at
 ///   `/{thing}/{path}` (the path defaults to the method's name). Its
 ///   parameters are axum extractors, and it returns a type that implements
@@ -114,6 +163,8 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///   `impl IntoResponse`, which in edition 2024 would borrow `&self`.
 /// - `#[on_start]`, `#[on_stop]`: lifecycle hooks, taking `&self` and
 ///   optionally a `ThingCtx`.
+/// - `#[thing_state]`: a synchronous `&self` method returning a
+///   serialisable summary of the Thing, for `Server::thing_states`.
 ///
 /// It also generates the trait `{Thing}Actions`, implemented for
 /// `ThingRef<{Thing}>`, with one method per action for in-process calls.
