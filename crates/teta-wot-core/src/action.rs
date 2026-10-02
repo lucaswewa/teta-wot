@@ -128,6 +128,14 @@ impl ActionError {
         &self.error
     }
 
+    /// The underlying error, for code outside actions that returns
+    /// `anyhow::Result`: `?` can't convert an `ActionError` there, because
+    /// it isn't a `std::error::Error`. Use
+    /// `.map_err(ActionError::into_anyhow)?`.
+    pub fn into_anyhow(self) -> anyhow::Error {
+        self.error
+    }
+
     /// The short name of the kind of error, used as the problem `title`.
     pub fn title(&self) -> &str {
         &self.title
@@ -342,6 +350,8 @@ pub(crate) trait ActionHandler: Send + Sync {
         input: &Value,
         ctx: ActionCtx,
     ) -> Result<(Value, BoxFuture<'static, Result<Value, ActionError>>), ValidationError>;
+    /// Validates the input, and returns it coerced.
+    fn validate(&self, input: &Value) -> Result<Value, ValidationError>;
 }
 
 struct TypedHandler<T, I, O> {
@@ -380,6 +390,11 @@ where
                 Ok(serde_json::to_value(output)?)
             }),
         ))
+    }
+
+    fn validate(&self, input: &Value) -> Result<Value, ValidationError> {
+        let typed: I = from_client(&self.input, input)?;
+        Ok(serde_json::to_value(&typed).unwrap_or(Value::Null))
     }
 }
 

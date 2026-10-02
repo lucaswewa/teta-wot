@@ -2,6 +2,7 @@
 
 use std::any::Any;
 use std::fmt;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -17,12 +18,16 @@ use crate::BoxFuture;
 use crate::action::{ActionError, ActionHandler, ActionMeta};
 use crate::broker::MessageBroker;
 use crate::cancel::CancelToken;
+use crate::config::FromConfig;
 use crate::context::{ActionCtx, CatchUnwind, InvocationScope};
 use crate::device::DeviceControl;
+use crate::endpoint::{self, EndpointEntry};
+use crate::inprocess::ThingRef;
 use crate::invocation::{Invocation, InvocationManager, InvocationStatus};
 use crate::lock::{DEFAULT_LOCK_TIMEOUT, GlobalLock};
 use crate::logs::LogBuffer;
 use crate::property::PropertyEntry;
+use crate::reserved::affordance_name_problem;
 use crate::thing::{DefinitionError, Thing, ThingCtx};
 use crate::validate::{LocItem, ValidationError};
 
@@ -52,9 +57,17 @@ pub enum BuildError {
         /// The repeated name.
         name: String,
     },
-    /// An affordance is badly defined.
+    /// An affordance is badly defined, or badly named.
     #[error(transparent)]
     Definition(#[from] DefinitionError),
+    /// A Thing's configuration (its `kwargs`) doesn't fit its `Config` type.
+    #[error("the configuration of Thing `{thing}` is invalid: {error}")]
+    InvalidConfig {
+        /// The Thing.
+        thing: String,
+        /// What is wrong.
+        error: serde_json::Error,
+    },
 }
 
 /// A Thing failed to start.
@@ -126,6 +139,30 @@ impl RuntimeBuilder {
         self
     }
 
+    /// Adds a Thing built from its configuration: `kwargs` is
+    /// deserialised into `T::Config` when the runtime is built.
+    pub fn thing_from_config<T: FromConfig>(
+        mut self,
+        name: impl Into<String>,
+        kwargs: Value,
+    ) -> Self {
+        let name = name.into();
+        let thing_name = name.clone();
+        self.things.push((
+            name,
+            Box::new(move |shared| {
+                let config = serde_json::from_value::<T::Config>(kwargs).map_err(|error| {
+                    BuildError::InvalidConfig {
+                        thing: thing_name.clone(),
+                        error,
+                    }
+                })?;
+                ThingHandle::instantiate(&thing_name, Arc::new(T::from_config(config)), shared)
+            }),
+        ));
+        self
+    }
+
     /// Checks the names, builds each Thing's registry entry and returns the runtime.
     pub fn build(self) -> Result<Runtime, BuildError> {
         let shared = Arc::new(Shared {
@@ -187,6 +224,12 @@ impl Runtime {
     /// A Thing by name.
     pub fn thing(&self, name: &str) -> Option<&Arc<ThingHandle>> {
         self.things.get(name)
+    }
+
+    /// A typed reference to a Thing, for in-process calls, if
+    /// the Thing named `name` is a `T`.
+    pub fn thing_ref<T: Thing>(&self, name: &str) -> Option<ThingRef<T>> {
+        ThingHandle::thing_ref(self.things.get(name)?)
     }
 
     /// Every Thing, in the order they were added.
@@ -295,8 +338,11 @@ pub struct ThingHandle {
     name: Arc<str>,
     title: String,
     description: Option<String>,
+    semantic_types: Vec<String>,
+    context_prefixes: Vec<(String, String)>,
     properties: IndexMap<String, PropertyEntry>,
     actions: IndexMap<String, ActionEntry>,
+    endpoints: Vec<EndpointEntry>,
     devices: Vec<(String, Arc<dyn DeviceControl>)>,
     lifecycle: Arc<dyn Lifecycle>,
     instance: Arc<dyn Any + Send + Sync>,
@@ -322,6 +368,11 @@ impl ThingHandle {
         let thing_name: Arc<str> = name.into();
         let mut seen = std::collections::HashSet::new();
         let mut check = |affordance: &str| {
+            if let Some(problem) = affordance_name_problem(affordance) {
+                return Err(BuildError::Definition(DefinitionError::new(
+                    name, affordance, problem,
+                )));
+            }
             if seen.insert(affordance.to_owned()) {
                 Ok(())
             } else {
@@ -375,6 +426,30 @@ impl ThingHandle {
             );
         }
 
+        let mut endpoints: Vec<EndpointEntry> = Vec::new();
+        for spec in definition.endpoints {
+            if let Some(problem) = endpoint::path_problem(&spec.path) {
+                return Err(DefinitionError::new(name, &spec.path, problem).into());
+            }
+            if endpoints
+                .iter()
+                .any(|e| e.method == spec.method && e.path == spec.path)
+            {
+                return Err(DefinitionError::new(
+                    name,
+                    &spec.path,
+                    format!("two endpoints answer {} {}", spec.method, spec.path),
+                )
+                .into());
+            }
+            endpoints.push(EndpointEntry {
+                handler: (spec.build)(&thing),
+                method: spec.method,
+                path: spec.path,
+                description: spec.description,
+            });
+        }
+
         let devices = definition
             .devices
             .into_iter()
@@ -385,8 +460,11 @@ impl ThingHandle {
             name: thing_name,
             title: definition.title,
             description: definition.description,
+            semantic_types: definition.semantic_types,
+            context_prefixes: definition.context_prefixes,
             properties,
             actions,
+            endpoints,
             devices,
             lifecycle: Arc::new(TypedLifecycle(Arc::clone(&thing))),
             instance: thing,
@@ -411,6 +489,22 @@ impl ThingHandle {
     /// The Thing itself, if it is a `T`.
     pub fn instance<T: Thing>(&self) -> Option<Arc<T>> {
         Arc::clone(&self.instance).downcast::<T>().ok()
+    }
+
+    /// A typed reference to the Thing, for in-process calls, if
+    /// it is a `T`.
+    pub fn thing_ref<T: Thing>(this: &Arc<Self>) -> Option<ThingRef<T>> {
+        Some(ThingRef::new(Arc::clone(this), this.instance()?))
+    }
+
+    /// The Thing's semantic annotations (`@type`).
+    pub fn semantic_types(&self) -> &[String] {
+        &self.semantic_types
+    }
+
+    /// The custom endpoints, in definition order.
+    pub fn endpoints(&self) -> impl Iterator<Item = &EndpointEntry> {
+        self.endpoints.iter()
     }
 
     /// A property by name.
@@ -473,6 +567,12 @@ impl ThingHandle {
         }
         if let Some(base) = &options.base {
             td = td.base(base);
+        }
+        for (prefix, iri) in &self.context_prefixes {
+            td = td.context_prefix(prefix, iri);
+        }
+        for semantic_type in &self.semantic_types {
+            td = td.semantic_type(semantic_type);
         }
 
         let mut properties: Vec<_> = self.properties.values().collect();
@@ -645,6 +745,63 @@ impl ActionEntry {
             shared.lock_log_level,
         )));
         Ok(invocation)
+    }
+
+    /// Calls the action in-process, as another Thing or a test
+    /// would, and waits for its output:
+    ///
+    /// - the input is validated as a client's would be;
+    /// - the global lock is held, if the action uses it, on behalf of the
+    ///   calling invocation (so a caller that holds it doesn't block itself);
+    /// - the action runs in the caller's invocation context (its
+    ///   cancellation and its log), or in a new stand-alone one;
+    /// - no invocation is recorded.
+    ///
+    /// Invalid input, a busy lock and the action's own failure are all
+    /// returned as [`ActionError`]s.
+    pub async fn call(&self, input: Value) -> Result<Value, ActionError> {
+        if input.is_null() && !accepts_null(self.handler.input_schema()) {
+            return Err(ValidationError::missing(vec![LocItem::from("body")], Value::Null).into());
+        }
+        let handler = Arc::clone(&self.handler);
+        self.run_in_process(move |ctx| async move {
+            let (_, future) = handler.prepare(&input, ctx)?;
+            future.await
+        })
+        .await
+    }
+
+    /// Validates an input as a client's would be, and returns it coerced.
+    pub fn validate_input(&self, input: &Value) -> Result<Value, ValidationError> {
+        self.handler.validate(input)
+    }
+
+    /// Runs `f` as an in-process call of this action (see [`call`](Self::call)):
+    /// with the global lock and the caller's invocation context. The macros'
+    /// typed wrappers use it after validating the input.
+    #[doc(hidden)]
+    pub async fn run_in_process<F, Fut, O>(&self, f: F) -> Result<O, ActionError>
+    where
+        F: FnOnce(ActionCtx) -> Fut,
+        Fut: Future<Output = Result<O, ActionError>>,
+    {
+        let current = InvocationScope::current();
+        let scope = current.clone().unwrap_or_else(InvocationScope::fake);
+        let ctx = ActionCtx::new(
+            scope.clone(),
+            Arc::clone(&self.thing),
+            self.shared.lock.clone(),
+        );
+        let _guard = match (&self.shared.lock, self.meta.global_lock) {
+            (Some(lock), true) => Some(lock.acquire(scope.lock_owner()).await?),
+            _ => None,
+        };
+        let future = f(ctx);
+        if current.is_some() {
+            future.await
+        } else {
+            scope.run(future).await
+        }
     }
 }
 

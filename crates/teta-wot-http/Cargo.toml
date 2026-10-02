@@ -14,6 +14,7 @@ http.workspace = true
 http-body-util.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tower.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 teta-wot-core.workspace = true
@@ -21,7 +22,6 @@ teta-wot-td.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
-tower.workspace = true
 teta-wot-core = { workspace = true, features = ["testing"] }
 
 [lints]

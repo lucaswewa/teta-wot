@@ -463,6 +463,22 @@ impl<T: Send + Sync + 'static, V: PropValue> From<DataProperty<T, V>> for Proper
     }
 }
 
+/// Runs blocking property code on tokio's blocking pool, in the caller's
+/// span and invocation scope. A panic resumes in the caller.
+async fn run_blocking<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+    let span = tracing::Span::current();
+    let scope = InvocationScope::current();
+    tokio::task::spawn_blocking(move || {
+        let _entered = span.enter();
+        match scope {
+            Some(scope) => scope.run_blocking(f),
+            None => f(),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+}
+
 type Getter<T, V> =
     Arc<dyn Fn(Arc<T>) -> BoxFuture<'static, Result<V, PropertyError>> + Send + Sync>;
 type Setter<T, V> =
@@ -512,19 +528,31 @@ impl<T: Send + Sync + 'static, V: PropValue> FunctionalProperty<T, V> {
         let getter = Arc::new(getter);
         Self::getter(move |t: Arc<T>| {
             let getter = Arc::clone(&getter);
-            async move {
-                let span = tracing::Span::current();
-                let scope = InvocationScope::current();
-                tokio::task::spawn_blocking(move || {
-                    let _entered = span.enter();
-                    match scope {
-                        Some(scope) => scope.run_blocking(|| getter(&t)),
-                        None => getter(&t),
-                    }
-                })
-                .await
-                .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
-            }
+            run_blocking(move || getter(&t))
+        })
+    }
+
+    /// Adds a blocking setter, run on tokio's blocking thread pool.
+    pub fn blocking_setter<F>(self, setter: F) -> Self
+    where
+        F: Fn(&T, V) -> Result<(), PropertyError> + Send + Sync + 'static,
+    {
+        let setter = Arc::new(setter);
+        self.setter(move |t: Arc<T>, value: V| {
+            let setter = Arc::clone(&setter);
+            run_blocking(move || setter(&t, value))
+        })
+    }
+
+    /// Adds a blocking resetter, run on tokio's blocking thread pool.
+    pub fn blocking_resetter<F>(self, resetter: F) -> Self
+    where
+        F: Fn(&T) -> Result<(), PropertyError> + Send + Sync + 'static,
+    {
+        let resetter = Arc::new(resetter);
+        self.resetter(move |t: Arc<T>| {
+            let resetter = Arc::clone(&resetter);
+            run_blocking(move || resetter(&t))
         })
     }
 

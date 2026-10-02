@@ -1,0 +1,127 @@
+//! Proc-macros for authoring `wot-rs` Things: `#[derive(Thing)]` and
+//! `#[thing_impl]`. Use them through the `teta_wot` crate (`teta_wot::Thing`,
+//! `teta_wot::thing_impl`), whose documentation they refer to.
+//!
+//! Both expand to the builder API of `teta-wot-core`.
+
+use proc_macro::TokenStream;
+
+mod common;
+mod derive;
+mod thing_impl;
+
+/// Makes a struct a Thing: its fields become properties and devices, and it
+/// can be built from a typed configuration.
+///
+/// ```ignore
+/// use teta_wot::prelude::*;
+///
+/// /// A computer-controlled light, our first example Thing.
+/// #[derive(Thing)]
+/// pub struct Light {
+///     /// The brightness of the light, in % of maximum.
+///     #[property(default = 100, ge = 0, le = 100, unit = "percent")]
+///     brightness: Prop<u8>,
+///
+///     /// Whether the light is currently on.
+///     #[property(default = false, readonly)]
+///     is_on: Prop<bool>,
+/// }
+/// ```
+///
+/// **The struct.** Its doc comment is the Thing's description; its title is
+/// the struct's name. `#[thing(…)]` options:
+///
+/// - `title = "…"`, `description = "…"`: override them;
+/// - `config = Type`: the typed configuration, deserialised from the
+///   Thing's `kwargs`, and available as `config` in `default` and `init`
+///   expressions. Without it, the Thing takes no configuration and also
+///   implements `Default`;
+/// - `semantic_type = "…"` (repeatable): the TD's `@type`;
+/// - `context(prefix = "iri", …)`: prefixes for the TD's `@context`.
+///
+/// **Fields.**
+///
+/// - `#[property(…)]` on a `Prop<T>` field: a data property. Its doc
+///   comment gives the title (first line) and description.
+///   Options: `readonly`; `default = expr`; the constraints `ge`, `gt`, `le`,
+///   `lt`, `multiple_of`, `min_length`, `max_length`, `pattern` and
+///   `allow_inf_nan`; `title`, `description`, `unit`, `semantic_type`
+///   (repeatable); `global_lock = false`.
+/// - `#[device(init = expr, options = expr)]` on a `Device<D>` field: a
+///   device, opened before the Thing starts. `init` makes the driver (a `D`
+///   or a `Result<D, _>`) on the device's thread; without it, `D::default()`.
+/// - Other fields are initialised with `#[thing(init = expr)]`, or
+///   `Default::default()`.
+/// - `#[setting]`, `#[event]`, `#[slot]` and `#[stream]` are reserved for
+///   later phases of the plan.
+///
+/// Methods (actions, functional properties, endpoints, lifecycle hooks) go in
+/// a `#[thing_impl]` block.
+#[proc_macro_derive(
+    Thing,
+    attributes(thing, property, device, setting, event, slot, stream)
+)]
+pub fn derive_thing(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as syn::DeriveInput);
+    derive::expand(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Makes methods of a Thing its actions, functional properties, custom
+/// endpoints and lifecycle hooks.
+///
+/// ```ignore
+/// #[thing_impl]
+/// impl Light {
+///     /// Swap the light between on and off.
+///     #[action]
+///     async fn toggle(&self) -> Result<bool, ActionError> {
+///         self.is_on.update(|on| *on = !*on)?;
+///         Ok(self.is_on.get())
+///     }
+///
+///     /// A human-readable status of the light.
+///     #[property]
+///     async fn status(&self) -> String {
+///         if self.is_on.get() { format!("On at {}%.", self.brightness.get()) } else { "Off.".into() }
+///     }
+/// }
+/// ```
+///
+/// Every method takes `&self`, and must be `async` unless marked `blocking`
+/// (then it runs on a blocking thread). Doc comments give the title and
+/// description.
+///
+/// - `#[action(…)]`: an action. Parameters become the input's fields;
+///   `#[param(default)]`, `#[param(default = expr)]` and
+///   `#[param(description = "…")]` describe them. A parameter of type
+///   `ActionCtx` receives the invocation context; `#[input]` on the only
+///   parameter makes its type the whole input. It may return a value, a
+///   `Result<T, E>` (with `E: Into<ActionError>`), or nothing. Options:
+///   `blocking`, `retention = seconds`, `global_lock = false`, `title`,
+///   `description`, `semantic_type`.
+/// - `#[property(…)]`: a functional property's getter, taking only `&self`
+///   and returning `T` or `Result<T, E>` (with `E: Into<PropertyError>`).
+///   `#[setter(name)]` and `#[resetter(name)]` (optionally with `blocking`)
+///   add a setter and a resetter to the property `name`. Options are those
+///   of a data property, plus `blocking`.
+/// - `#[endpoint(get, "path")]`: a custom HTTP endpoint at
+///   `/{thing}/{path}` (the path defaults to the method's name). Its
+///   parameters are axum extractors, and it returns a type that implements
+///   `IntoResponse`. Return a concrete type (such as `Response`) rather than
+///   `impl IntoResponse`, which in edition 2024 would borrow `&self`.
+/// - `#[on_start]`, `#[on_stop]`: lifecycle hooks, taking `&self` and
+///   optionally a `ThingCtx`.
+///
+/// It also generates the trait `{Thing}Actions`, implemented for
+/// `ThingRef<{Thing}>`, with one method per action for in-process calls.
+#[proc_macro_attribute]
+pub fn thing_impl(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = proc_macro2::TokenStream::from(args);
+    let item = syn::parse_macro_input!(input as syn::ItemImpl);
+    thing_impl::expand(args, item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}

@@ -5,35 +5,43 @@ members = ["crates/*", "examples/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# The pinned toolchain is also the minimum supported version.
 rust-version = "1.98"
+# The project has no licence, so nothing is published.
 publish = false
 
 [workspace.dependencies]
-teta-wot-td = { path = "crates/teta-wot-td" }
+teta-wot = { path = "crates/teta-wot" }
 teta-wot-core = { path = "crates/teta-wot-core" }
 teta-wot-http = { path = "crates/teta-wot-http" }
+teta-wot-macros = { path = "crates/teta-wot-macros" }
 teta-wot-server = { path = "crates/teta-wot-server" }
-teta-wot = { path = "crates/teta-wot" }
+teta-wot-td = { path = "crates/teta-wot-td" }
 
 anyhow = "1.0"
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "query", "tokio"] }
+bytes = "1.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
-regex = "1.13"
-indexmap = { version = "2.14.2", features = ["serde"] }
-jsonschema = { version = "0.58.3", default-features = false }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
-schemars = { version = "1.2", features = ["preserve_order", "indexmap2"] }
-tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
-insta = { version = "1.48", features = ["json"] }
-thiserror = "2.0"
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
-uuid = { version = "1.26", features = ["v4", "v5", "serde"] }
-axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio"] }
 http = "1.5"
 http-body-util = "0.1.5"
-bytes = "1.12"
+indexmap = { version = "2.14", features = ["serde"] }
+insta = { version = "1.48", features = ["json"] }
+jsonschema = { version = "0.58", default-features = false }
+proc-macro2 = "1.0.107"
+proptest = "1.11"
+quote = "1.0.47"
+regex = "1.11"
+schemars = { version = "1.2", features = ["preserve_order", "indexmap2"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+syn = { version = "2.0.119", features = ["full"] }
+thiserror = "2.0"
+tokio = { version = "1.47", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5.3", features = ["util"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
+trybuild = "1.0.119"
+uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"
@@ -43,5 +51,6 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 
 [profile.dev.package]
+# Snapshot diffs are much faster with an optimised `similar`.
 insta.opt-level = 3
 similar.opt-level = 3

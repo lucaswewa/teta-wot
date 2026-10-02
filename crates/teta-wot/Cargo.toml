@@ -1,6 +1,6 @@
 [package]
 name = "teta-wot"
-description = "teta-wot: expose laboratory hardware and software as W3C Web of Things Things. This is the crate that applications depend on."
+description = "wot-rs: expose laboratory hardware and software as W3C Web of Things Things. This is the crate that applications depend on."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,15 +8,27 @@ publish.workspace = true
 
 [features]
 default = []
+## Validate Thing Descriptions against the vendored W3C TD 1.1 JSON Schema.
 validation = ["teta-wot-td/validation"]
-## Helpers for testing Things without a server (`wot::testing`).
+## Helpers for testing Things without a server, and an in-process HTTP test client (`wot::testing`).
 testing = ["teta-wot-core/testing", "teta-wot-server/testing"]
 
 [dependencies]
-teta-wot-td.workspace = true
 teta-wot-core.workspace = true
 teta-wot-http.workspace = true
+teta-wot-macros.workspace = true
 teta-wot-server.workspace = true
+teta-wot-td.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tracing.workspace = true
+trybuild.workspace = true
+teta-wot = { path = ".", features = ["testing", "validation"] }
 
 [lints]
 workspace = true

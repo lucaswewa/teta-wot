@@ -4,22 +4,42 @@ use http::Method;
 use teta_wot_core::Runtime;
 
 use crate::RouteError;
+use crate::endpoint::EndpointService;
 
 /// What a route does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Endpoint {
-    ThingDescription { thing: String },
-    ReadProperty { thing: String, property: String },
-    WriteProperty { thing: String, property: String },
-    ResetProperty { thing: String, property: String },
-    InvokeAction { thing: String, action: String },
-    ListActionInvocations { thing: String, action: String },
+    ThingDescription {
+        thing: String,
+    },
+    ReadProperty {
+        thing: String,
+        property: String,
+    },
+    WriteProperty {
+        thing: String,
+        property: String,
+    },
+    ResetProperty {
+        thing: String,
+        property: String,
+    },
+    InvokeAction {
+        thing: String,
+        action: String,
+    },
+    ListActionInvocations {
+        thing: String,
+        action: String,
+    },
     ListInvocations,
     GetInvocation,
     CancelInvocation,
     InvocationOutput,
     ThingPaths,
     ThingDescriptions,
+    /// A custom endpoint: the index of its service in [`Routes::services`].
+    Custom(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,13 +77,23 @@ pub const RESERVED_THING_NAMES: [&str; 6] = [
     "redoc",
 ];
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Routes {
     routes: Vec<Route>,
+    /// The services of custom endpoints.
+    pub(crate) services: Vec<EndpointService>,
+}
+
+impl std::fmt::Debug for Routes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Routes")
+            .field("routes", &self.routes)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Routes {
-    /// Every route for the runtime's Things, in registration order.
+    /// Every route for the runtime's Things.
     pub(crate) fn build(runtime: &Runtime, prefix: &str) -> Result<Self, RouteError> {
         let mut routes = Routes::default();
         let invocations = format!("{prefix}/action_invocations");
@@ -148,6 +178,31 @@ impl Routes {
                     Method::GET,
                     Endpoint::ListActionInvocations { thing, action },
                 );
+            }
+            for endpoint in thing.endpoints() {
+                let path = format!("{base}{}", endpoint.path());
+                let conflict = || RouteError::EndpointConflict {
+                    thing: name.to_owned(),
+                    route: format!("{} {path}", endpoint.method()),
+                };
+                let method =
+                    Method::from_bytes(endpoint.method().as_bytes()).map_err(|_| conflict())?;
+                if routes
+                    .routes
+                    .iter()
+                    .any(|r| r.method == method && r.matches(&path).is_some())
+                {
+                    return Err(conflict());
+                }
+                let service = endpoint
+                    .handler()
+                    .downcast_ref::<EndpointService>()
+                    .ok_or_else(|| RouteError::ForeignEndpoint {
+                        thing: name.to_owned(),
+                        path: endpoint.path().to_owned(),
+                    })?;
+                routes.services.push(service.clone());
+                routes.add(&path, method, Endpoint::Custom(routes.services.len() - 1));
             }
             routes.add(
                 &base,

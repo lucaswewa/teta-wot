@@ -12,9 +12,11 @@
 //! | `{prefix}/action_invocations/{id}` | `GET`, `DELETE` cancels |
 //! | `{prefix}/action_invocations/{id}/output` | `GET` |
 //! | `{prefix}/things/`, `{prefix}/thing_descriptions/` | `GET` |
+//! | `{prefix}/{thing}/{path}` | a custom [`Endpoint`]'s method |
 //!
 
 mod cors;
+mod endpoint;
 mod handlers;
 mod render;
 mod routes;
@@ -25,7 +27,13 @@ use axum::Router;
 use teta_wot_core::Runtime;
 use uuid::Uuid;
 
+pub use endpoint::Endpoint;
 pub use routes::RESERVED_THING_NAMES;
+
+// Custom endpoints are written with this axum; re-exported so that Thing
+// code uses the same version.
+#[doc(no_inline)]
+pub use axum;
 
 /// Options of the HTTP binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +63,22 @@ pub enum RouteError {
     /// A Thing's name clashes with one of the server's routes.
     #[error("the Thing name `{0}` is reserved for the server's own routes")]
     ReservedThingName(String),
+    /// A custom endpoint answers a route that another route already answers.
+    #[error("an endpoint of Thing `{thing}` answers `{route}`, which is already taken")]
+    EndpointConflict {
+        /// The Thing.
+        thing: String,
+        /// The method and path.
+        route: String,
+    },
+    /// A custom endpoint wasn't made with [`Endpoint`].
+    #[error("the endpoint `{path}` of Thing `{thing}` wasn't made with `wot_http::Endpoint`")]
+    ForeignEndpoint {
+        /// The Thing.
+        thing: String,
+        /// The endpoint's path.
+        path: String,
+    },
 }
 
 /// Builds the router for a runtime's Things. The runtime should be started

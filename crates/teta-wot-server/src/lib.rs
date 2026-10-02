@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use teta_wot_core::{BuildError, Runtime, RuntimeBuilder, StartupError, Thing};
+use teta_wot_core::{BuildError, FromConfig, Runtime, RuntimeBuilder, StartupError, Thing};
 use teta_wot_http::{HttpOptions, RouteError};
 use tokio::net::TcpListener;
 
@@ -73,6 +73,17 @@ impl ThingServerBuilder {
     /// Adds a Thing that is already shared.
     pub fn thing_arc<T: Thing>(mut self, name: impl Into<String>, thing: Arc<T>) -> Self {
         self.runtime = self.runtime.thing_arc(name, thing);
+        self
+    }
+
+    /// Adds a Thing built from its configuration (its `kwargs`), which is
+    /// deserialised into `T::Config` when the server is built.
+    pub fn thing_from_config<T: FromConfig>(
+        mut self,
+        name: impl Into<String>,
+        kwargs: serde_json::Value,
+    ) -> Self {
+        self.runtime = self.runtime.thing_from_config::<T>(name, kwargs);
         self
     }
 

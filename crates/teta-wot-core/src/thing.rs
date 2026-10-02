@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::action::ActionSpec;
 use crate::device::{Device, DeviceAccess, DeviceControl, Driver};
+use crate::endpoint::EndpointSpec;
 use crate::property::PropertySpec;
 
 /// A Thing type.
@@ -13,6 +14,14 @@ use crate::property::PropertySpec;
 /// and its affordances run concurrently. The definition says
 /// which affordances it has; [`start`](Self::start) and
 /// [`stop`](Self::stop) run when the server starts and stops.
+///
+/// `#[derive(Thing)]` implements it, or it can be implemented
+/// by hand with [`ThingDefinition`].
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a Thing",
+    label = "not a Thing",
+    note = "add `#[derive(Thing)]` to the struct, or implement `Thing` with a `ThingDefinition`"
+)]
 pub trait Thing: Send + Sync + Sized + 'static {
     /// The Thing's title, description and affordances.
     fn definition() -> ThingDefinition<Self>;
@@ -79,9 +88,12 @@ type DeviceBuild<T> = Box<dyn FnOnce(&Arc<T>) -> Arc<dyn DeviceControl> + Send>;
 pub struct ThingDefinition<T> {
     pub(crate) title: String,
     pub(crate) description: Option<String>,
+    pub(crate) semantic_types: Vec<String>,
+    pub(crate) context_prefixes: Vec<(String, String)>,
     pub(crate) properties: Vec<(String, PropertySpec<T>)>,
     pub(crate) actions: Vec<(String, ActionSpec<T>)>,
     pub(crate) devices: Vec<(String, DeviceBuild<T>)>,
+    pub(crate) endpoints: Vec<EndpointSpec<T>>,
 }
 
 impl<T: Thing> ThingDefinition<T> {
@@ -90,15 +102,38 @@ impl<T: Thing> ThingDefinition<T> {
         Self {
             title: title.into(),
             description: None,
+            semantic_types: Vec::new(),
+            context_prefixes: Vec::new(),
             properties: Vec::new(),
             actions: Vec::new(),
             devices: Vec::new(),
+            endpoints: Vec::new(),
         }
     }
 
     /// Sets the description.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    /// Adds a semantic annotation (`@type`) to the Thing.
+    pub fn semantic_type(mut self, semantic_type: impl Into<String>) -> Self {
+        self.semantic_types.push(semantic_type.into());
+        self
+    }
+
+    /// Adds a prefix to the TD's `@context`, for semantic types and units
+    /// written as compact IRIs (`saref:LightSwitch`).
+    pub fn context_prefix(mut self, prefix: impl Into<String>, iri: impl Into<String>) -> Self {
+        self.context_prefixes.push((prefix.into(), iri.into()));
+        self
+    }
+
+    /// Adds a custom HTTP endpoint, made with
+    /// `teta_wot::http::Endpoint`. Endpoints aren't in the Thing Description.
+    pub fn endpoint(mut self, endpoint: impl Into<EndpointSpec<T>>) -> Self {
+        self.endpoints.push(endpoint.into());
         self
     }
 

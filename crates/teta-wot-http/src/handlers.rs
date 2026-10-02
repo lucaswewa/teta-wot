@@ -9,6 +9,7 @@ use http::{HeaderValue, Method, StatusCode};
 use serde_json::{Map, Value, json};
 use teta_wot_core::invocation::CancelError;
 use teta_wot_core::{LocItem, PropertyError, Runtime, TdOptions, ValidationIssue};
+use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::render::{self, Urls, created, detail, problem, redirect, unprocessable};
@@ -31,7 +32,17 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
     let urls = Urls::from_request(&parts, &app.options.api_prefix);
     let path = parts.uri.path().to_owned();
     let mut response = match app.routes.find(&parts.method, &path) {
-        Found::Route(route, param) => app.endpoint(&route.endpoint, param, &urls, body).await,
+        Found::Route(route, param) => match route.endpoint {
+            // A custom endpoint gets the whole request, for its extractors.
+            Endpoint::Custom(index) => {
+                let service = app.routes.services[index].clone();
+                match service.oneshot(Request::from_parts(parts, body)).await {
+                    Ok(response) => response,
+                    Err(never) => match never {},
+                }
+            }
+            _ => app.endpoint(&route.endpoint, param, &urls, body).await,
+        },
         Found::WrongMethod(route) => {
             let mut response = detail(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed");
             if let Ok(allow) = HeaderValue::from_str(route.method.as_str()) {
@@ -72,6 +83,10 @@ impl App {
     ) -> Response {
         let invocations = self.runtime.invocations();
         match endpoint {
+            // Answered by `dispatch`, which passes on the whole request.
+            Endpoint::Custom(_) => {
+                detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
+            }
             Endpoint::ThingDescription { thing } => match self.td(thing, urls) {
                 Ok(td) => render::json(StatusCode::OK, &td),
                 Err(error) => detail(StatusCode::INTERNAL_SERVER_ERROR, &error),
