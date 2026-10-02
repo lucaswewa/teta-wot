@@ -32,6 +32,11 @@ pub(crate) enum Endpoint {
         thing: String,
         action: String,
     },
+    /// Server-sent events of an event affordance.
+    SubscribeEvent {
+        thing: String,
+        event: String,
+    },
     ListInvocations,
     GetInvocation,
     CancelInvocation,
@@ -177,6 +182,16 @@ impl Routes {
                     &path,
                     Method::GET,
                     Endpoint::ListActionInvocations { thing, action },
+                );
+            }
+            for event in thing.events() {
+                routes.add(
+                    &format!("{base}{}", event.name()),
+                    Method::GET,
+                    Endpoint::SubscribeEvent {
+                        thing: name.to_owned(),
+                        event: event.name().to_owned(),
+                    },
                 );
             }
             for endpoint in thing.endpoints() {

@@ -224,12 +224,12 @@ impl Invocation {
     }
 
     fn publish(&self, status: InvocationStatus) {
-        self.broker.publish(Message {
-            thing: self.thing.to_string(),
-            affordance: self.action.to_string(),
-            kind: MessageKind::Action,
-            payload: Value::from(status.as_str()),
-        });
+        self.broker.publish(Message::new(
+            &*self.thing,
+            &*self.action,
+            MessageKind::Action,
+            Value::from(status.as_str()),
+        ));
     }
 
     pub(crate) fn announce(&self) {

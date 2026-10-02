@@ -12,6 +12,8 @@
 //! | `{prefix}/action_invocations/{id}` | `GET`, `DELETE` cancels |
 //! | `{prefix}/action_invocations/{id}/output` | `GET` |
 //! | `{prefix}/things/`, `{prefix}/thing_descriptions/` | `GET` |
+//! | `{prefix}/{thing}/{event}` | `GET` subscribes to an event (SSE) |
+//! | `{prefix}/{thing}/ws` | a WebSocket, plus event subscriptions |
 //! | `{prefix}/{thing}/{path}` | a custom [`Endpoint`]'s method |
 //!
 
@@ -19,6 +21,7 @@ mod cors;
 mod endpoint;
 mod fallback;
 mod handlers;
+mod observe;
 mod render;
 mod routes;
 

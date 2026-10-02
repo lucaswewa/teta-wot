@@ -9,12 +9,13 @@ publish.workspace = true
 [features]
 default = []
 ## An in-process test client (`teta_wot_server::testing`).
-testing = ["dep:tempfile"]
+testing = ["dep:futures-util", "dep:tempfile", "dep:tokio-tungstenite"]
 
 [dependencies]
 axum.workspace = true
 bytes.workspace = true
 clap.workspace = true
+futures-util = { workspace = true, optional = true }
 http.workspace = true
 http-body-util.workspace = true
 indexmap.workspace = true
@@ -22,6 +23,7 @@ serde_json.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+tokio-tungstenite = { workspace = true, optional = true }
 tower.workspace = true
 tracing.workspace = true
 teta-wot-core.workspace = true

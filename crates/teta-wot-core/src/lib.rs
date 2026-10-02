@@ -15,6 +15,8 @@
 //! - [`Prop<T>`], [`DataProperty`] and [`FunctionalProperty`]: property
 //!   cells with validation and change notification, and properties backed
 //!   by async getters and setters.
+//! - [`Event<T>`] and [`EventSpec`]: events a Thing emits, from async or
+//!   synchronous code.
 //! - [`Action`], [`ActionCtx`] and [`ActionError`]: async actions with
 //!   cooperative cancellation ([`CancelToken`]), child invocations and a
 //!   blocking-code helper.
@@ -35,6 +37,7 @@ pub mod config;
 pub mod context;
 pub mod device;
 pub mod endpoint;
+pub mod event;
 pub mod inprocess;
 pub mod invocation;
 pub mod lock;
@@ -65,6 +68,7 @@ pub use context::{
 };
 pub use device::{AbortHandle, Device, DeviceError, DeviceOptions, DeviceState, Driver};
 pub use endpoint::{EndpointEntry, EndpointHandler, EndpointSpec};
+pub use event::{Event, EventData, EventEntry, EventSpec};
 pub use inprocess::ThingRef;
 pub use invocation::{
     CancelError, Invocation, InvocationManager, InvocationRecord, InvocationStatus,

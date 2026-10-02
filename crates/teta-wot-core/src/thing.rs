@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::action::ActionSpec;
 use crate::device::{Device, DeviceAccess, DeviceControl, Driver};
 use crate::endpoint::EndpointSpec;
+use crate::event::EventSpec;
 use crate::inprocess::ThingRef;
 use crate::property::PropertySpec;
 use crate::runtime::ThingHandle;
@@ -120,6 +121,7 @@ pub struct ThingDefinition<T> {
     pub(crate) context_prefixes: Vec<(String, String)>,
     pub(crate) properties: Vec<(String, PropertySpec<T>)>,
     pub(crate) actions: Vec<(String, ActionSpec<T>)>,
+    pub(crate) events: Vec<(String, EventSpec<T>)>,
     pub(crate) devices: Vec<(String, DeviceBuild<T>)>,
     pub(crate) endpoints: Vec<EndpointSpec<T>>,
     pub(crate) class_name: Option<String>,
@@ -139,6 +141,7 @@ impl<T: Thing> ThingDefinition<T> {
             context_prefixes: Vec::new(),
             properties: Vec::new(),
             actions: Vec::new(),
+            events: Vec::new(),
             devices: Vec::new(),
             endpoints: Vec::new(),
             class_name: None,
@@ -251,6 +254,12 @@ impl<T: Thing> ThingDefinition<T> {
     /// Adds an action.
     pub fn action(mut self, name: impl Into<String>, action: impl Into<ActionSpec<T>>) -> Self {
         self.actions.push((name.into(), action.into()));
+        self
+    }
+
+    /// Adds an event: an [`Event`](crate::Event) field of the Thing.
+    pub fn event(mut self, name: impl Into<String>, event: EventSpec<T>) -> Self {
+        self.events.push((name.into(), event));
         self
     }
 

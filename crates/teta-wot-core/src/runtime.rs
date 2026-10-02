@@ -11,7 +11,8 @@ use std::time::Duration;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use teta_wot_td::{
-    ActionAffordance, DataSchema, Form, Operation, PropertyAffordance, TdError, ThingDescription,
+    ActionAffordance, DataSchema, EventAffordance, Form, Operation, PropertyAffordance, TdError,
+    ThingDescription,
 };
 use tracing::Level;
 use uuid::Uuid;
@@ -24,6 +25,7 @@ use crate::config::FromConfig;
 use crate::context::{ActionCtx, CatchUnwind, InvocationScope};
 use crate::device::DeviceControl;
 use crate::endpoint::{self, EndpointEntry};
+use crate::event::EventEntry;
 use crate::inprocess::ThingRef;
 use crate::invocation::{Invocation, InvocationManager, InvocationStatus};
 use crate::lock::{DEFAULT_LOCK_TIMEOUT, GlobalLock};
@@ -472,9 +474,11 @@ impl Runtime {
         }
     }
 
-    /// Cancels every unfinished invocation, waits up to `grace` for them to
-    /// finish, then stops the Things.
+    /// Closes the message broker (ending observation streams), cancels
+    /// every unfinished invocation, waits up to `grace` for them to finish,
+    /// then stops the Things.
     pub async fn shutdown(&self, grace: Duration) {
+        self.shared.broker.close();
         self.shared.invocations.cancel_all();
         let _ = tokio::time::timeout(grace, self.shared.invocations.wait_idle()).await;
         self.stop().await;
@@ -513,15 +517,26 @@ pub struct TdOptions {
     pub base: Option<String>,
     /// The TD's `id`, if any.
     pub id: Option<String>,
+    /// Whether to describe observation and events:
+    /// `observable` on data properties, with server-sent events forms at
+    /// their paths, and the Thing's `events`. TDs have none of
+    /// these, and without them events can't be described (an event needs a
+    /// form), so they are left out. The HTTP binding always turns this on.
+    pub observation: bool,
+    /// The Thing's WebSocket URL (`ws://host/{prefix}/{thing}/ws`), for
+    /// WebSocket forms next to the SSE ones, if `observation` is on.
+    pub websocket: Option<String>,
 }
 
 impl TdOptions {
-    /// Options for a Thing served at `/{name}/` with no API prefix.
+    /// Options for a Thing served at `/{name}/` with no API prefix: no base, no `id`, no observation.
     pub fn for_name(name: &str) -> Self {
         Self {
             path: format!("/{name}/"),
             base: None,
             id: None,
+            observation: false,
+            websocket: None,
         }
     }
 }
@@ -536,6 +551,7 @@ pub struct ThingHandle {
     context_prefixes: Vec<(String, String)>,
     properties: IndexMap<String, PropertyEntry>,
     actions: IndexMap<String, ActionEntry>,
+    events: IndexMap<String, EventEntry>,
     endpoints: Vec<EndpointEntry>,
     devices: Vec<(String, Arc<dyn DeviceControl>)>,
     class_name: String,
@@ -636,6 +652,23 @@ impl ThingHandle {
             );
         }
 
+        let mut events = IndexMap::new();
+        for (event_name, spec) in definition.events {
+            check(&event_name)?;
+            let data = (spec.build)(&thing, name, &event_name, &shared.broker)?;
+            let meta = spec.meta;
+            events.insert(
+                event_name.clone(),
+                EventEntry {
+                    title: meta.title.unwrap_or_else(|| event_name.clone()),
+                    name: event_name,
+                    description: meta.description,
+                    semantic_types: meta.semantic_types,
+                    data,
+                },
+            );
+        }
+
         let mut endpoints: Vec<EndpointEntry> = Vec::new();
         for spec in definition.endpoints {
             if let Some(problem) = endpoint::path_problem(&spec.path) {
@@ -683,6 +716,7 @@ impl ThingHandle {
             context_prefixes: definition.context_prefixes,
             properties,
             actions,
+            events,
             endpoints,
             devices,
             class_name,
@@ -793,6 +827,16 @@ impl ThingHandle {
         self.actions.values()
     }
 
+    /// An event by name.
+    pub fn event(&self, name: &str) -> Option<&EventEntry> {
+        self.events.get(name)
+    }
+
+    /// The events, in definition order.
+    pub fn events(&self) -> impl Iterator<Item = &EventEntry> {
+        self.events.values()
+    }
+
     async fn start(&self) -> anyhow::Result<()> {
         let mut opened: Vec<&Arc<dyn DeviceControl>> = Vec::new();
         for (device_name, device) in &self.devices {
@@ -820,9 +864,14 @@ impl ThingHandle {
         close_all(self.devices.iter().map(|(_, d)| d).collect()).await;
     }
 
-    /// The Thing Description: properties and actions in alphabetical order, forms
-    /// at `{path}{name}`, `readOnly` and `writeOnly` always written, action schemas
-    /// titled `<name>_input` and `<name>_output`, and the `no_security` scheme.
+    /// The Thing Description: properties and actions
+    /// in alphabetical order, forms at `{path}{name}`, `readOnly` and
+    /// `writeOnly` always written, action schemas titled `<name>_input` and
+    /// `<name>_output`, and the `no_security` scheme.
+    ///
+    /// With [`TdOptions::observation`]: data properties are `observable`, with an SSE form (and a
+    /// WebSocket form, given the URL), and events are described, in
+    /// alphabetical order, with the same two forms.
     pub fn thing_description(&self, options: &TdOptions) -> Result<ThingDescription, TdError> {
         let mut td = ThingDescription::builder(&self.title);
         if let Some(id) = &options.id {
@@ -849,10 +898,22 @@ impl ThingHandle {
             } else {
                 vec![Operation::ReadProperty, Operation::WriteProperty]
             };
+            let href = format!("{}{}", options.path, property.name);
             let mut affordance = PropertyAffordance::builder(property.data_schema().clone())
                 .title(&property.title)
                 .read_only(property.read_only)
-                .form(Form::new(format!("{}{}", options.path, property.name)).with_op(op));
+                .form(Form::new(&href).with_op(op));
+            if options.observation && property.is_observable() {
+                affordance = affordance.observable(true).form(
+                    Form::new(&href)
+                        .with_op([Operation::ObserveProperty, Operation::UnobserveProperty])
+                        .with_subprotocol("sse"),
+                );
+                if let Some(websocket) = &options.websocket {
+                    affordance =
+                        affordance.form(Form::new(websocket).with_op([Operation::ObserveProperty]));
+                }
+            }
             if let Some(description) = &property.description {
                 affordance = affordance.description(description);
             }
@@ -896,6 +957,30 @@ impl ThingHandle {
                 affordance = affordance.semantic_type(semantic_type);
             }
             td = td.action(&*action.name, affordance);
+        }
+
+        let mut events: Vec<_> = self.events.values().collect();
+        events.sort_by(|a, b| a.name.cmp(&b.name));
+        for event in events.into_iter().filter(|_| options.observation) {
+            let mut affordance = EventAffordance::builder().title(&event.title).form(
+                Form::new(format!("{}{}", options.path, event.name))
+                    .with_op([Operation::SubscribeEvent, Operation::UnsubscribeEvent])
+                    .with_subprotocol("sse"),
+            );
+            if let Some(websocket) = &options.websocket {
+                affordance =
+                    affordance.form(Form::new(websocket).with_op([Operation::SubscribeEvent]));
+            }
+            if let Some(description) = &event.description {
+                affordance = affordance.description(description);
+            }
+            if let Some(data) = &event.data {
+                affordance = affordance.data(data.clone());
+            }
+            for semantic_type in &event.semantic_types {
+                affordance = affordance.semantic_type(semantic_type);
+            }
+            td = td.event(&event.name, affordance);
         }
         td.build()
     }

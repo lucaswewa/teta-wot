@@ -134,7 +134,19 @@ pub trait ActionOutput {}
 #[diagnostic::do_not_recommend]
 impl<T: Serialize + JsonSchema + Send + 'static> ActionOutput for T {}
 
+/// A type that can be an event's data.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` can't be the data of an event",
+    label = "not usable as event data",
+    note = "event data must implement `Serialize`, `JsonSchema`, `Clone`, `Send` and `Sync`, and own its data"
+)]
+pub trait EventPayload {}
+
+#[diagnostic::do_not_recommend]
+impl<T: crate::EventData> EventPayload for T {}
+
 pub fn property_value<T: PropertyValue + ?Sized>() {}
+pub fn event_data<T: EventPayload + ?Sized>() {}
 pub fn action_parameter<T: ActionParameter + ?Sized>() {}
 pub fn action_output<T: ActionOutput + ?Sized>() {}
 

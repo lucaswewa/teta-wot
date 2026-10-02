@@ -242,12 +242,12 @@ impl<T: PropValue> Prop<T> {
                 .has_subscribers(&binding.thing, &binding.name)
             && let Ok(payload) = serde_json::to_value(&value)
         {
-            binding.broker.publish(Message {
-                thing: binding.thing.to_string(),
-                affordance: binding.name.to_string(),
-                kind: MessageKind::Property,
+            binding.broker.publish(Message::new(
+                &*binding.thing,
+                &*binding.name,
+                MessageKind::Property,
                 payload,
-            });
+            ));
         }
         self.value.send_replace(value);
     }

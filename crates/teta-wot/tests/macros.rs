@@ -140,3 +140,41 @@ async fn derive_without_an_impl_block_initializes_and_manages_devices() {
     runtime.stop().await;
     assert_eq!(thing.driver.state(), teta_wot::DeviceState::Closed);
 }
+
+#[derive(Clone, serde::Serialize, schemars::JsonSchema)]
+struct Trip {
+    was_emitting: bool,
+}
+
+#[derive(Thing)]
+struct EventThing {
+    #[event(title = "Interlock tripped")]
+    tripped: Event<Trip>,
+}
+
+#[tokio::test]
+async fn derived_events_register_their_schema_and_deliver_to_rust_and_sse() {
+    let thing = Arc::new(EventThing::default());
+    let client = TestClient::start(
+        ThingServer::builder()
+            .thing_arc("event", thing.clone())
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let td = client.get("/event/").await.json();
+    assert_eq!(td["events"]["tripped"]["title"], "Interlock tripped");
+    assert_eq!(
+        td["events"]["tripped"]["data"]["properties"]["was_emitting"]["type"],
+        "boolean"
+    );
+    let mut rust = thing.tripped.subscribe();
+    let mut sse = client.events("/event/tripped").await;
+    assert_eq!(sse.status.as_u16(), 200);
+    thing.tripped.emit(Trip { was_emitting: true });
+    assert!(rust.recv().await.unwrap().was_emitting);
+    assert_eq!(sse.next().await, Some(json!({"was_emitting":true})));
+    drop(sse);
+    client.stop().await;
+}

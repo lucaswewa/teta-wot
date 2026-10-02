@@ -12,10 +12,7 @@ use crate::common::{
 };
 
 /// Field attributes for affordances that later phases implement.
-const LATER: [(&str, &str); 2] = [
-    ("event", "events arrive with observation"),
-    ("stream", "MJPEG streams arrive with Blobs and streams"),
-];
+const LATER: [(&str, &str); 1] = [("stream", "MJPEG streams arrive with Blobs and streams")];
 
 /// `#[thing(…)]` on the struct.
 #[derive(Default)]
@@ -72,6 +69,8 @@ impl ThingOptions {
 enum Kind {
     /// A data property; `true` for a setting.
     Property(Box<Options>, bool),
+    /// An event.
+    Event(Box<Options>),
     /// A slot, with its default selection.
     Slot(TokenStream),
     Device {
@@ -120,7 +119,10 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
             continue;
         };
         let name_ident = field.ident.as_ref().expect("named fields");
-        let is_affordance = matches!(kind, Kind::Property(..) | Kind::Device { .. });
+        let is_affordance = matches!(
+            kind,
+            Kind::Property(..) | Kind::Event(..) | Kind::Device { .. }
+        );
         if is_affordance {
             let Some(name) = errors.push_result(affordance_name(name_ident)) else {
                 continue;
@@ -131,11 +133,30 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                     format!("two affordances are named `{name}`"),
                 ));
             }
-            if matches!(kind, Kind::Property(..)) {
+            if matches!(kind, Kind::Property(..) | Kind::Event(..)) {
                 guards.push(collision_guard(name_ident));
             }
         }
         match kind {
+            Kind::Event(event) => {
+                let Some(data) = unwrap_type(&field.ty, "Event") else {
+                    errors.push(error(
+                        field.ty.span(),
+                        "an `#[event]` field must be an `Event<T>`",
+                    ));
+                    continue;
+                };
+                asserts.push(
+                    quote_spanned!(data.span()=> ::teta_wot::__private::event_data::<#data>();),
+                );
+                let name = affordance_name(name_ident).unwrap_or_default();
+                let described =
+                    describe(docstring(&field.attrs).as_deref(), &event.described, false);
+                definition.push(quote! {
+                    .event(#name, ::teta_wot::EventSpec::new(|thing: &Self| &thing.#name_ident) #described)
+                });
+                inits.push(quote!(#name_ident: ::teta_wot::Event::new()));
+            }
             Kind::Slot(selection) => {
                 let is_slot = ["Slot", "OptSlot", "SlotMap"]
                     .iter()
@@ -418,6 +439,11 @@ fn classify(field: &Field) -> syn::Result<Kind> {
                 )?),
                 path.is_ident("setting"),
             ))
+        } else if path.is_ident("event") {
+            Some(Kind::Event(Box::new(Options::parse(
+                attr,
+                &["title", "description", "semantic_type"],
+            )?)))
         } else if path.is_ident("slot") {
             Some(Kind::Slot(slot_default(attr)?))
         } else if path.is_ident("device") {

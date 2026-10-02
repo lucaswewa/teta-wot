@@ -156,9 +156,233 @@ impl TestClient {
         }
     }
 
+    /// Opens a server-sent events stream: `GET path` with
+    /// `Accept: text/event-stream`, in-process.
+    pub async fn events(&self, path: &str) -> TestEventStream {
+        let request = Request::builder()
+            .uri(path)
+            .header("host", &self.host)
+            .header("accept", "text/event-stream")
+            .body(Body::empty())
+            .expect("a valid test request");
+        let response = self
+            .router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router is infallible");
+        let (parts, body) = response.into_parts();
+        TestEventStream {
+            status: parts.status,
+            headers: parts.headers,
+            body,
+            buffer: String::new(),
+        }
+    }
+
+    /// Opens a WebSocket (`websocket_connect`). A WebSocket
+    /// needs a real connection, so the router is served on a loopback port
+    /// for as long as the socket is open; requests carry this client's
+    /// `Host`.
+    pub async fn websocket(&self, path: &str) -> TestWebSocket {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("a loopback port");
+        let addr = listener.local_addr().expect("a bound address");
+        let server = tokio::spawn(axum::serve(listener, self.router.clone()).into_future());
+        let stream = tokio::net::TcpStream::connect(addr)
+            .await
+            .expect("the loopback server accepts");
+        let url = format!("ws://{}{path}", self.host);
+        let (socket, _) = tokio_tungstenite::client_async(url, stream)
+            .await
+            .expect("the WebSocket handshake succeeds");
+        TestWebSocket { socket, server }
+    }
+
     /// Cancels running invocations and stops the Things.
     pub async fn stop(self) {
         self.runtime.shutdown(Duration::from_secs(1)).await;
+    }
+}
+
+/// How long [`TestEventStream`] and [`TestWebSocket`] wait for a message
+/// before failing the test.
+pub const RECEIVE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// A server-sent events stream opened by [`TestClient::events`].
+pub struct TestEventStream {
+    /// The response's status.
+    pub status: StatusCode,
+    /// The response's headers.
+    pub headers: HeaderMap,
+    body: Body,
+    buffer: String,
+}
+
+impl std::fmt::Debug for TestEventStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestEventStream")
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TestEventStream {
+    /// A header's value, if present and text.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|v| v.to_str().ok())
+    }
+
+    /// The next event's `data`, as JSON (a string if it isn't JSON), or
+    /// `None` when the stream ends. Comments (keep-alives) are skipped.
+    /// Panics after [`RECEIVE_TIMEOUT`].
+    pub async fn next(&mut self) -> Option<Value> {
+        tokio::time::timeout(RECEIVE_TIMEOUT, self.next_event())
+            .await
+            .expect("no server-sent event within the timeout")
+    }
+
+    /// The next event's `data` if one arrives within `timeout`.
+    pub async fn next_within(&mut self, timeout: Duration) -> Option<Value> {
+        tokio::time::timeout(timeout, self.next_event())
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn next_event(&mut self) -> Option<Value> {
+        loop {
+            if let Some(end) = self.buffer.find("\n\n") {
+                let event: String = self.buffer.drain(..end + 2).collect();
+                let data: Vec<&str> = event
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data:"))
+                    .map(|data| data.strip_prefix(' ').unwrap_or(data))
+                    .collect();
+                if data.is_empty() {
+                    continue;
+                }
+                let data = data.join("\n");
+                return Some(serde_json::from_str(&data).unwrap_or(Value::String(data)));
+            }
+            let frame = self.body.frame().await?.ok()?;
+            if let Ok(bytes) = frame.into_data() {
+                self.buffer
+                    .push_str(&String::from_utf8_lossy(&bytes).replace("\r\n", "\n"));
+            }
+        }
+    }
+}
+
+/// A WebSocket opened by [`TestClient::websocket`].
+pub struct TestWebSocket {
+    socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    server: tokio::task::JoinHandle<std::io::Result<()>>,
+}
+
+impl std::fmt::Debug for TestWebSocket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TestWebSocket").finish_non_exhaustive()
+    }
+}
+
+impl Drop for TestWebSocket {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+/// How a [`TestWebSocket`] was closed by the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestClose {
+    /// The close code (1005 if the frame had none).
+    pub code: u16,
+    /// The reason.
+    pub reason: String,
+}
+
+impl TestWebSocket {
+    /// Sends a JSON text message.
+    pub async fn send_json(&mut self, value: &Value) {
+        self.send_text(&value.to_string()).await;
+    }
+
+    /// Sends a text message.
+    pub async fn send_text(&mut self, text: &str) {
+        use futures_util::SinkExt;
+        self.socket
+            .send(tokio_tungstenite::tungstenite::Message::text(text))
+            .await
+            .expect("the WebSocket is open");
+    }
+
+    /// Receives a JSON text message. Panics if the socket closes, or after
+    /// [`RECEIVE_TIMEOUT`].
+    pub async fn receive_json(&mut self) -> Value {
+        match tokio::time::timeout(RECEIVE_TIMEOUT, self.receive()).await {
+            Ok(Ok(value)) => value,
+            Ok(Err(close)) => panic!("the WebSocket closed: {close:?}"),
+            Err(_) => panic!("no WebSocket message within the timeout"),
+        }
+    }
+
+    /// Receives a JSON text message if one arrives within `timeout`.
+    pub async fn receive_json_within(&mut self, timeout: Duration) -> Option<Value> {
+        tokio::time::timeout(timeout, self.receive())
+            .await
+            .ok()
+            .and_then(Result::ok)
+    }
+
+    /// Waits for the server to close the socket, skipping messages.
+    pub async fn closed(&mut self) -> TestClose {
+        tokio::time::timeout(RECEIVE_TIMEOUT, async {
+            loop {
+                if let Err(close) = self.receive().await {
+                    return close;
+                }
+            }
+        })
+        .await
+        .expect("the WebSocket didn't close within the timeout")
+    }
+
+    /// Closes the socket with code 1000.
+    pub async fn close(mut self) {
+        let _ = self.socket.close(None).await;
+    }
+
+    async fn receive(&mut self) -> Result<Value, TestClose> {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+        loop {
+            match self.socket.next().await {
+                Some(Ok(Message::Text(text))) => {
+                    return Ok(serde_json::from_str(text.as_str())
+                        .unwrap_or_else(|_| Value::String(text.as_str().to_owned())));
+                }
+                Some(Ok(Message::Close(frame))) => {
+                    return Err(frame.map_or(
+                        TestClose {
+                            code: 1005,
+                            reason: String::new(),
+                        },
+                        |frame| TestClose {
+                            code: frame.code.into(),
+                            reason: frame.reason.as_str().to_owned(),
+                        },
+                    ));
+                }
+                Some(Ok(_)) => {}
+                Some(Err(_)) | None => {
+                    return Err(TestClose {
+                        code: 1006,
+                        reason: String::new(),
+                    });
+                }
+            }
+        }
     }
 }
 

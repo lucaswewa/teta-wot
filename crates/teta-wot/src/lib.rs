@@ -18,6 +18,10 @@
 //! - composition and persistence: slots ([`Slot`], [`OptSlot`], [`SlotMap`],
 //!   and interfaces declared with [`interface`]), settings saved to disk,
 //!   services ([`Dep`]) and the [`Server`] handle;
+//! - observation and events: events ([`Event`]) emitted from async or
+//!   synchronous code, and properties, action status and events observed
+//!   over WebSocket (`/{thing}/ws`) and server-sent
+//!   events, all described in the TD;
 //! - [`td`]: the Thing Description model, its builders, and the conversion
 //!   from Rust types to TD `DataSchema`s;
 //! - with the `testing` feature, [`testing`]: helpers for testing Things,
@@ -65,9 +69,9 @@ pub mod testing {
 pub mod prelude {
     pub use teta_wot_core::{
         Action, ActionCtx, ActionError, BoxFuture, CancelToken, Cancelled, Constraints,
-        DataProperty, Dep, Device, DeviceError, DeviceOptions, Driver, FromConfig,
-        FunctionalProperty, InvocationStatus, NoConfig, NoInput, OptSlot, Prop, PropertyError,
-        Runtime, Server, Slot, SlotMap, Thing, ThingCtx, ThingDefinition, ThingRef,
+        DataProperty, Dep, Device, DeviceError, DeviceOptions, Driver, Event, EventSpec,
+        FromConfig, FunctionalProperty, InvocationStatus, NoConfig, NoInput, OptSlot, Prop,
+        PropertyError, Runtime, Server, Slot, SlotMap, Thing, ThingCtx, ThingDefinition, ThingRef,
         cancellable_sleep, check_cancelled,
     };
     pub use teta_wot_macros::{Thing, interface, thing_impl};

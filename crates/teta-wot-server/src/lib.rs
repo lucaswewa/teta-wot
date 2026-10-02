@@ -332,6 +332,9 @@ impl ThingServer {
 
         tracing::info!("shutting down");
         let _ = stop.send(true);
+        // Ends WebSocket and SSE streams, which would otherwise keep their
+        // connections open for the whole grace period.
+        self.runtime.broker().close();
         self.runtime.invocations().cancel_all();
         let drained = tokio::time::timeout(self.grace, async {
             let _ = (&mut server).await;

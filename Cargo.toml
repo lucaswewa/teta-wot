@@ -19,12 +19,13 @@ teta-wot-server = { path = "crates/teta-wot-server" }
 teta-wot-td = { path = "crates/teta-wot-td" }
 
 anyhow = "1.0"
-axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "query", "tokio"] }
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "query", "tokio", "ws"] }
 bytes = "1.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 clap = { version = "4.6", features = ["derive"] }
 http = "1.5"
 http-body-util = "0.1.5"
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 indexmap = { version = "2.14", features = ["serde"] }
 insta = { version = "1.48", features = ["json"] }
 jsonschema = { version = "0.58", default-features = false }
@@ -44,6 +45,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
 trybuild = "1.0.119"
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

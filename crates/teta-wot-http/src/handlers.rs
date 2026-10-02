@@ -12,6 +12,7 @@ use teta_wot_core::{LocItem, PropertyError, Runtime, TdOptions, ValidationIssue}
 use tower::ServiceExt;
 use uuid::Uuid;
 
+use crate::observe;
 use crate::render::{self, Urls, created, detail, problem, redirect, unprocessable};
 use crate::routes::{Endpoint, Found, Routes};
 use crate::{HttpOptions, td_id};
@@ -28,18 +29,39 @@ pub(crate) struct App {
 /// The one handler: looks the request up in the route table and answers.
 pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
+    // WebSocket upgrades aren't in the route table: like Starlette's
+    // WebSocket routes, `/{thing}/ws` doesn't answer plain HTTP.
+    if let Some(thing) = observe::websocket_thing(&app.runtime, &app.options.api_prefix, &parts) {
+        drain(body).await;
+        return observe::upgrade(Arc::clone(app.runtime.broker()), thing, parts).await;
+    }
     let head = parts.method == Method::HEAD;
     let urls = Urls::from_request(&parts, &app.options.api_prefix);
     let path = parts.uri.path().to_owned();
     let mut response = match app.routes.find(&parts.method, &path) {
-        Found::Route(route, param) => match route.endpoint {
+        Found::Route(route, param) => match &route.endpoint {
             // A custom endpoint gets the whole request, for its extractors.
             Endpoint::Custom(index) => {
-                let service = app.routes.services[index].clone();
+                let service = app.routes.services[*index].clone();
                 match service.oneshot(Request::from_parts(parts, body)).await {
                     Ok(response) => response,
                     Err(never) => match never {},
                 }
+            }
+            Endpoint::ReadProperty { thing, property }
+                if observe::wants_event_stream(&parts.headers)
+                    && app
+                        .runtime
+                        .thing(thing)
+                        .and_then(|t| t.property(property))
+                        .is_some_and(|p| p.is_observable()) =>
+            {
+                drain(body).await;
+                observe::event_stream(app.runtime.broker(), thing, property)
+            }
+            Endpoint::SubscribeEvent { thing, event } => {
+                drain(body).await;
+                observe::event_stream(app.runtime.broker(), thing, event)
             }
             Endpoint::WriteProperty { .. } | Endpoint::InvokeAction { .. } => {
                 app.endpoint(&route.endpoint, param, &urls, body).await
@@ -100,8 +122,8 @@ impl App {
     ) -> Response {
         let invocations = self.runtime.invocations();
         match endpoint {
-            // Answered by `dispatch`, which passes on the whole request.
-            Endpoint::Custom(_) => {
+            // Answered by `dispatch`, which needs the whole request.
+            Endpoint::Custom(_) | Endpoint::SubscribeEvent { .. } => {
                 detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
             }
             Endpoint::ThingDescription { thing } => match self.td(thing, urls) {
@@ -259,6 +281,8 @@ impl App {
             path: urls.thing_path(thing),
             base: Some(urls.base()),
             id: Some(td_id(&self.options.server_id, thing)),
+            observation: true,
+            websocket: Some(urls.websocket(thing)),
         };
         let td = handle
             .thing_description(&options)

@@ -50,6 +50,17 @@ impl Urls {
         format!("{}/{thing}/", self.prefix)
     }
 
+    /// The absolute URL of a Thing's WebSocket: `ws://` (or `wss://`) and
+    /// the request's host.
+    pub(crate) fn websocket(&self, thing: &str) -> String {
+        let origin = match self.origin.split_once("://") {
+            Some(("https", host)) => format!("wss://{host}"),
+            Some((_, host)) => format!("ws://{host}"),
+            None => self.origin.clone(),
+        };
+        format!("{origin}{}ws", self.thing_path(thing))
+    }
+
     pub(crate) fn invocation_href(&self, id: &uuid::Uuid) -> String {
         self.absolute(&format!("{}/action_invocations/{id}", self.prefix))
     }

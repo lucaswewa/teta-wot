@@ -45,7 +45,7 @@ pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Makes a struct a Thing: its fields become properties and devices, and it
+/// Makes a struct a Thing: its fields become properties, events and devices, and it
 /// can be built from a typed configuration.
 ///
 /// ```ignore
@@ -98,8 +98,12 @@ pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
 ///   type or a `dyn` interface. By default it connects by type;
 ///   `default = "name"`, `default = ["a", "b"]` or `default = None` change
 ///   that, and the configuration's `thing_slots` overrides it.
-/// - `#[event]` and `#[stream]` are reserved for
-///   later phases of the plan.
+/// - `#[event]` on an `Event<T>` field: an event, which the Thing emits
+///   with `self.field.emit(data)`, from async or synchronous code. Its doc
+///   comment gives the title and description, and `T`'s
+///   schema the TD's `data`. Options: `title`, `description`,
+///   `semantic_type` (repeatable).
+/// - `#[stream]` is reserved for a later phase of the plan.
 ///
 /// Methods (actions, functional properties, endpoints, lifecycle hooks) go in
 /// a `#[thing_impl]` block.
