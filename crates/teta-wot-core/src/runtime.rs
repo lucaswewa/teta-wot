@@ -706,6 +706,7 @@ impl ThingHandle {
                 path: spec.path,
                 description: spec.description,
                 link: spec.link,
+                name: spec.name,
             });
         }
 

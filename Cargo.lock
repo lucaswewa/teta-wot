@@ -448,6 +448,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "docs-offline"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "teta-wot",
+ "tokio",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1125,6 +1135,18 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
+
+[[package]]
+name = "openapi-export"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "schemars",
+ "serde",
+ "serde_json",
+ "teta-wot",
+ "tokio",
+]
 
 [[package]]
 name = "outref"

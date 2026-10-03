@@ -19,6 +19,7 @@ fn options(prefix: &str) -> HttpOptions {
     HttpOptions {
         api_prefix: prefix.into(),
         server_id: "test-server".into(),
+        ..HttpOptions::default()
     }
 }
 

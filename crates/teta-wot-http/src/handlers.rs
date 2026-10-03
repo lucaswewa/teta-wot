@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::render::{self, Urls, created, detail, problem, redirect, unprocessable};
 use crate::routes::{Endpoint, Found, Routes};
 use crate::{HttpOptions, td_id};
-use crate::{observe, output};
+use crate::{docs, observe, output};
 
 /// The largest request body read (64 MiB).
 const BODY_LIMIT: usize = 64 * 1024 * 1024;
@@ -25,6 +25,8 @@ pub(crate) struct App {
     pub(crate) runtime: Arc<Runtime>,
     pub(crate) routes: Routes,
     pub(crate) options: HttpOptions,
+    /// The OpenAPI document, serialised once: it doesn't change.
+    pub(crate) openapi: bytes::Bytes,
 }
 
 /// The one handler: looks the request up in the route table and answers.
@@ -90,7 +92,7 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
         Found::WrongMethod(route) => {
             drain(body).await;
             let mut response = detail(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed");
-            if let Ok(allow) = HeaderValue::from_str(route.method.as_str()) {
+            if let Ok(allow) = HeaderValue::from_str(route.allow.unwrap_or(route.method.as_str())) {
                 response.headers_mut().insert(http::header::ALLOW, allow);
             }
             response
@@ -144,6 +146,18 @@ impl App {
             | Endpoint::StreamViewer { .. } => {
                 detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
             }
+            Endpoint::OpenApi => {
+                let mut response = Response::new(Body::from(self.openapi.clone()));
+                response.headers_mut().insert(
+                    http::header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                );
+                response
+            }
+            Endpoint::SwaggerUi => docs::swagger_ui(&self.options.api_title),
+            Endpoint::OAuth2Redirect => docs::oauth2_redirect(),
+            Endpoint::Redoc => docs::redoc(&self.options.api_title),
+            Endpoint::DocsAsset(index) => docs::asset(*index),
             Endpoint::ThingDescription { thing } => match self.td(thing, urls) {
                 Ok(td) => render::json(StatusCode::OK, &td),
                 Err(error) => detail(StatusCode::INTERNAL_SERVER_ERROR, &error),
@@ -311,23 +325,33 @@ impl App {
 
     /// A Thing's TD as served: with the request's base URL and a stable `id`.
     fn td(&self, thing: &str, urls: &Urls) -> Result<Value, String> {
-        let handle = self
-            .runtime
-            .thing(thing)
-            .ok_or_else(|| format!("no Thing named {thing}"))?;
-        let options = TdOptions {
-            path: urls.thing_path(thing),
-            base: Some(urls.base()),
-            id: Some(td_id(&self.options.server_id, thing)),
-            observation: true,
-            websocket: Some(urls.websocket(thing)),
-            links: true,
-        };
-        let td = handle
-            .thing_description(&options)
-            .map_err(|e| e.to_string())?;
-        serde_json::to_value(td).map_err(|e| e.to_string())
+        served_td(&self.runtime, thing, urls, &self.options)
     }
+}
+
+/// A Thing's TD as served: with the base URL of the request, a stable `id`,
+/// and the descriptions of observation, events and links.
+pub(crate) fn served_td(
+    runtime: &Runtime,
+    thing: &str,
+    urls: &Urls,
+    options: &HttpOptions,
+) -> Result<Value, String> {
+    let handle = runtime
+        .thing(thing)
+        .ok_or_else(|| format!("no Thing named {thing}"))?;
+    let td_options = TdOptions {
+        path: urls.thing_path(thing),
+        base: Some(urls.base()),
+        id: Some(td_id(&options.server_id, thing)),
+        observation: true,
+        websocket: Some(urls.websocket(thing)),
+        links: true,
+    };
+    let td = handle
+        .thing_description(&td_options)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(td).map_err(|e| e.to_string())
 }
 
 /// A property failure: 422 for invalid values, otherwise problem details
@@ -384,7 +408,7 @@ fn char_offset(text: &str, line: usize, column: usize) -> usize {
     before + column.saturating_sub(1)
 }
 
-/// Parses the ID in the path (the parameter `name`), or answers FastAPI's 422.
+/// Parses the ID in the path (the parameter `name`), or answers 422.
 #[allow(clippy::result_large_err)]
 fn parse_id(raw: Option<&str>, name: &str) -> Result<Uuid, Response> {
     let raw = raw.unwrap_or_default();

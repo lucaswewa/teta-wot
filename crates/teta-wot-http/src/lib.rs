@@ -15,13 +15,16 @@
 //! | `{prefix}/{thing}/{event}` | `GET` subscribes to an event (SSE) |
 //! | `{prefix}/{thing}/ws` | a WebSocket, plus event subscriptions |
 //! | `{prefix}/{thing}/{path}` | a custom [`Endpoint`]'s method |
+//! | `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc` | `GET` and `HEAD`: the OpenAPI document ([`openapi`]) and the docs pages, at the root |
 //!
 
 mod cors;
+mod docs;
 mod endpoint;
 mod fallback;
 mod handlers;
 mod observe;
+mod openapi;
 mod output;
 mod render;
 mod routes;
@@ -32,8 +35,10 @@ use axum::Router;
 use teta_wot_core::Runtime;
 use uuid::Uuid;
 
+pub use docs::{OFFLINE as DOCS_OFFLINE, REDOC_VERSION, SWAGGER_UI_VERSION};
 pub use endpoint::Endpoint;
 pub use fallback::{FallbackPage, fallback_router};
+pub use openapi::{openapi, operation_id};
 pub use routes::RESERVED_THING_NAMES;
 
 // Custom endpoints are written with this axum; re-exported so that Thing
@@ -48,6 +53,10 @@ pub struct HttpOptions {
     pub api_prefix: String,
     /// Identifies the server in TD `id`s (see [`td_id`]).
     pub server_id: String,
+    /// The API's title in the OpenAPI document and the docs pages
+    pub api_title: String,
+    /// The API's version in the OpenAPI document.
+    pub api_version: String,
 }
 
 impl Default for HttpOptions {
@@ -55,6 +64,8 @@ impl Default for HttpOptions {
         Self {
             api_prefix: String::new(),
             server_id: default_server_id(),
+            api_title: "wot-rs".to_owned(),
+            api_version: "0.1.0".to_owned(),
         }
     }
 }
@@ -101,15 +112,33 @@ pub fn router(runtime: Arc<Runtime>, options: HttpOptions) -> Result<Router, Rou
         return Err(RouteError::InvalidPrefix(options.api_prefix));
     }
     let routes = routes::Routes::build(&runtime, &options.api_prefix)?;
+    let openapi = serde_json::to_vec(&openapi::openapi(&runtime, &options))
+        .unwrap_or_default()
+        .into();
     let app = Arc::new(handlers::App {
         runtime,
         routes,
         options,
+        openapi,
     });
     Ok(Router::new()
         .fallback(handlers::dispatch)
         .with_state(app)
         .layer(axum::middleware::from_fn(cors::cors)))
+}
+
+/// A Thing's Thing Description as the server serves it at `base` (such as
+/// `http://localhost:5000/`): with that base, the TD `id`, and the forms
+/// and links of observation, events and streams. With the OpenAPI document
+/// ([`openapi`]), it lets TDs be written to files without a server.
+pub fn thing_description(
+    runtime: &Runtime,
+    thing: &str,
+    base: &str,
+    options: &HttpOptions,
+) -> Result<serde_json::Value, String> {
+    let urls = render::Urls::from_base(base, &options.api_prefix);
+    handlers::served_td(runtime, thing, &urls, options)
 }
 
 /// A stable TD `id` for a Thing: `urn:uuid:` followed by the UUIDv5

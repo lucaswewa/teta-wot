@@ -165,6 +165,14 @@ impl ThingServerBuilder {
         self
     }
 
+    /// The API's title and version, in the OpenAPI document and the docs
+    /// pages (`wot-rs` and `0.1.0` by default).
+    pub fn api_info(mut self, title: impl Into<String>, version: impl Into<String>) -> Self {
+        self.http.api_title = title.into();
+        self.http.api_version = version.into();
+        self
+    }
+
     /// How long shutdown waits for requests and invocations (5 s by default).
     pub fn shutdown_grace(mut self, grace: Duration) -> Self {
         self.grace = grace;

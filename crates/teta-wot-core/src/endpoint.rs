@@ -22,6 +22,7 @@ pub struct EndpointSpec<T> {
     pub(crate) path: String,
     pub(crate) description: Option<String>,
     pub(crate) link: Option<EndpointLink>,
+    pub(crate) name: Option<String>,
     pub(crate) build: BuildFn<T>,
 }
 
@@ -47,14 +48,23 @@ impl<T> EndpointSpec<T> {
             path: path.into(),
             description: None,
             link: None,
+            name: None,
             build: Box::new(build),
         }
     }
 
-    /// Sets the description (for the OpenAPI document of Phase 8).
+    /// Sets the description, shown in the OpenAPI document.
     #[must_use]
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    /// Sets the name its OpenAPI `operationId` is made from. `#[endpoint]` uses the
+    /// method's name; without one, the path is used.
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 
@@ -88,6 +98,7 @@ pub struct EndpointEntry {
     pub(crate) path: String,
     pub(crate) description: Option<String>,
     pub(crate) link: Option<EndpointLink>,
+    pub(crate) name: Option<String>,
     pub(crate) handler: EndpointHandler,
 }
 
@@ -114,6 +125,12 @@ impl EndpointEntry {
     /// The description.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// The name its OpenAPI `operationId` is made from: the one given, or
+    /// the path.
+    pub fn name(&self) -> &str {
+        self.name.as_deref().unwrap_or(&self.path)
     }
 
     /// How it is listed in the TD's `links`, if it is.

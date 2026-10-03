@@ -12,6 +12,7 @@
 //!   [`Runtime`];
 //! - [`server`]: the HTTP server ([`server::ThingServer`]), which serves the
 //!   runtime over HTTP, and shuts down gracefully;
+//!   its OpenAPI document ([`server::openapi`]) with Swagger UI and ReDoc;
 //!   Configuration files ([`server::ServerConfig`]) with a
 //!   registry of Thing types ([`server::ThingRegistry`]), and
 //!   command line ([`server::cli`]) with its fallback server;
@@ -43,8 +44,9 @@ pub use teta_wot_td as td;
 /// The HTTP server and binding.
 pub mod server {
     pub use teta_wot_http::{
-        FallbackPage, HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id,
-        fallback_router, td_id,
+        DOCS_OFFLINE, FallbackPage, HttpOptions, REDOC_VERSION, RESERVED_THING_NAMES, RouteError,
+        SWAGGER_UI_VERSION, default_server_id, fallback_router, openapi, operation_id, td_id,
+        thing_description,
     };
     pub use teta_wot_server::{
         ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, ServeError,

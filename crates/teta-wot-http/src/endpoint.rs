@@ -56,10 +56,18 @@ impl<T: Send + Sync + 'static> Endpoint<T> {
         }
     }
 
-    /// Sets the description (for the OpenAPI document of Phase 8).
+    /// Sets the description, shown in the OpenAPI document.
     #[must_use]
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.spec = self.spec.description(description);
+        self
+    }
+
+    /// Sets the name its OpenAPI `operationId` is made from: see
+    /// [`EndpointSpec::name`].
+    #[must_use]
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.spec = self.spec.name(name);
         self
     }
 

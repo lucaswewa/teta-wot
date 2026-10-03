@@ -36,6 +36,14 @@ impl Urls {
         }
     }
 
+    /// The URLs of a server at `base` (`scheme://host[:port]/`).
+    pub(crate) fn from_base(base: &str, prefix: &str) -> Self {
+        Self {
+            origin: base.trim_end_matches('/').to_owned(),
+            prefix: prefix.to_owned(),
+        }
+    }
+
     /// The base URL, as the TD's `base`: `scheme://host/`.
     pub(crate) fn base(&self) -> String {
         format!("{}/", self.origin)

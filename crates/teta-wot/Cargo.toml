@@ -12,6 +12,9 @@ default = []
 validation = ["teta-wot-td/validation"]
 ## Helpers for testing Things without a server, and an in-process HTTP test client (`wot::testing`).
 testing = ["teta-wot-core/testing", "teta-wot-server/testing"]
+## Serve the interactive API docs (`/docs`, `/redoc`) with their assets
+## compiled in, so they work without network access.
+docs-offline = ["teta-wot-server/docs-offline"]
 
 [dependencies]
 teta-wot-core.workspace = true

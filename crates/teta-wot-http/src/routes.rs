@@ -4,6 +4,7 @@ use http::Method;
 use teta_wot_core::Runtime;
 
 use crate::RouteError;
+use crate::docs;
 use crate::endpoint::EndpointService;
 
 /// What a route does.
@@ -38,6 +39,16 @@ pub(crate) enum Endpoint {
         event: String,
     },
     ListInvocations,
+    /// `GET /openapi.json`.
+    OpenApi,
+    /// `GET /docs`.
+    SwaggerUi,
+    /// `GET /docs/oauth2-redirect`.
+    OAuth2Redirect,
+    /// `GET /redoc`.
+    Redoc,
+    /// A compiled-in docs asset: its index in `docs::ASSETS`.
+    DocsAsset(usize),
     /// `GET {prefix}/blob/{id}`.
     DownloadBlob,
     /// An MJPEG stream.
@@ -71,6 +82,10 @@ pub(crate) struct Route {
     segments: Vec<Segment>,
     pub(crate) method: Method,
     pub(crate) endpoint: Endpoint,
+    /// The `allow` of a 405, if not `method` (Starlette's plain routes
+    /// answer `GET` and `HEAD`; Starlette names them in an order that varies
+    /// from run to run, as it comes from a Python set).
+    pub(crate) allow: Option<&'static str>,
 }
 
 /// The result of looking up a request.
@@ -113,6 +128,13 @@ impl Routes {
     /// Every route for the runtime's Things.
     pub(crate) fn build(runtime: &Runtime, prefix: &str) -> Result<Self, RouteError> {
         let mut routes = Routes::default();
+        routes.add_get_and_head("/openapi.json", Endpoint::OpenApi);
+        routes.add_get_and_head("/docs", Endpoint::SwaggerUi);
+        routes.add_get_and_head("/docs/oauth2-redirect", Endpoint::OAuth2Redirect);
+        routes.add_get_and_head("/redoc", Endpoint::Redoc);
+        for (index, (path, _, _)) in docs::ASSETS.iter().enumerate() {
+            routes.add_get_and_head(path, Endpoint::DocsAsset(index));
+        }
         let invocations = format!("{prefix}/action_invocations");
         routes.add(&invocations, Method::GET, Endpoint::ListInvocations);
         routes.add(
@@ -279,7 +301,18 @@ impl Routes {
             segments,
             method,
             endpoint,
+            allow: None,
         });
+    }
+
+    /// A route answering `GET` and `HEAD`.
+    fn add_get_and_head(&mut self, path: &str, endpoint: Endpoint) {
+        for method in [Method::GET, Method::HEAD] {
+            self.add(path, method, endpoint.clone());
+            if let Some(route) = self.routes.last_mut() {
+                route.allow = Some("GET, HEAD");
+            }
+        }
     }
 
     /// Looks up a request by method and path.

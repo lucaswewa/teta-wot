@@ -6,6 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+## Serve the Swagger UI and ReDoc assets from the binary, for labs without
+## network access.
+docs-offline = []
+
 [dependencies]
 axum.workspace = true
 bytes.workspace = true

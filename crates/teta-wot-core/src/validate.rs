@@ -105,7 +105,7 @@ impl ValidationError {
     }
 
     /// pydantic's `value_error`, raised by a validator: `Value error, …`,
-    /// with an empty `ctx.error` (FastAPI's rendering of the exception).
+    /// with an empty `ctx.error`.
     pub fn value_error(loc: Vec<LocItem>, message: &str, input: Value) -> Self {
         let mut ctx = Map::new();
         ctx.insert("error".into(), Value::Object(Map::new()));

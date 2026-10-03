@@ -10,6 +10,9 @@ publish.workspace = true
 default = []
 ## An in-process test client (`teta_wot_server::testing`).
 testing = ["dep:futures-util", "dep:tempfile", "dep:tokio-tungstenite"]
+## Serve the Swagger UI and ReDoc assets from the binary, for labs without
+## network access.
+docs-offline = ["teta-wot-http/docs-offline"]
 
 [dependencies]
 axum.workspace = true

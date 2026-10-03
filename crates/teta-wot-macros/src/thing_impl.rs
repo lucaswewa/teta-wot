@@ -955,6 +955,7 @@ fn actions_trait(
 
 fn endpoint_tokens(endpoint: &Endpoint) -> TokenStream {
     let method = &endpoint.method.sig.ident;
+    let name = syn::ext::IdentExt::unraw(method).to_string();
     let http_method = &endpoint.http_method;
     let path = &endpoint.path;
     let args: Vec<Ident> = typed_params(&endpoint.method)
@@ -976,7 +977,7 @@ fn endpoint_tokens(endpoint: &Endpoint) -> TokenStream {
                 let __thing = ::std::sync::Arc::clone(&__thing);
                 async move { __thing.#method(#(#args),*).await }
             }
-        }) #description #link)
+        }) .name(#name) #description #link)
     }
 }
 
