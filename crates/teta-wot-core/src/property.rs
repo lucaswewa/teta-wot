@@ -280,8 +280,32 @@ pub(crate) fn from_client<T: DeserializeOwned>(
 ) -> Result<T, ValidationError> {
     let loc = vec![LocItem::from("body")];
     let coerced = validator.validate(value, &loc)?;
-    serde_json::from_value(coerced.clone())
-        .map_err(|e| ValidationError::from_serde(&e, loc, coerced))
+    serde_path_to_error::deserialize(coerced.clone()).map_err(|error| {
+        let message = error.inner().to_string();
+        match message.strip_prefix(crate::blob::ERROR_MARK) {
+            // A Blob that can't be found or doesn't fit: pydantic's
+            // `value_error`, at the Blob, with the Blob's input as sent.
+            Some(message) => {
+                let mut loc = loc;
+                let mut input = value;
+                for segment in error.path().iter() {
+                    match segment {
+                        serde_path_to_error::Segment::Map { key } => {
+                            input = input.get(key).unwrap_or(&Value::Null);
+                            loc.push(LocItem::from(key.as_str()));
+                        }
+                        serde_path_to_error::Segment::Seq { index } => {
+                            input = input.get(index).unwrap_or(&Value::Null);
+                            loc.push(LocItem::Index(*index));
+                        }
+                        _ => {}
+                    }
+                }
+                ValidationError::value_error(loc, message, input.clone())
+            }
+            None => ValidationError::from_serde(error.inner(), loc, coerced),
+        }
+    })
 }
 
 /// Metadata shared by both kinds of property.

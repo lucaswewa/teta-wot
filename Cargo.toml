@@ -23,11 +23,12 @@ axum = { version = "0.8.9", default-features = false, features = ["form", "http1
 bytes = "1.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 clap = { version = "4.6", features = ["derive"] }
+futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 http = "1.5"
 http-body-util = "0.1.5"
-futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 indexmap = { version = "2.14", features = ["serde"] }
 insta = { version = "1.48", features = ["json"] }
+jpeg-encoder = "0.7.1"
 jsonschema = { version = "0.58", default-features = false }
 proc-macro2 = "1.0.107"
 proptest = "1.11"
@@ -36,16 +37,17 @@ regex = "1.11"
 schemars = { version = "1.2", features = ["preserve_order", "indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
+serde_path_to_error = "0.1.20"
 syn = { version = "2.0.119", features = ["full"] }
 tempfile = "3.27"
 thiserror = "2.0"
-tokio = { version = "1.47", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.47", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
 trybuild = "1.0.119"
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [workspace.lints.rust]
 missing_docs = "warn"

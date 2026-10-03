@@ -156,6 +156,21 @@ impl TestClient {
         }
     }
 
+    /// `GET path`, without reading the body: for long responses such as
+    /// MJPEG streams, read with `http_body_util::BodyExt::frame`.
+    pub async fn stream(&self, path: &str) -> axum::response::Response {
+        let request = Request::builder()
+            .uri(path)
+            .header("host", &self.host)
+            .body(Body::empty())
+            .expect("a valid test request");
+        self.router
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router is infallible")
+    }
+
     /// Opens a server-sent events stream: `GET path` with
     /// `Accept: text/event-stream`, in-process.
     pub async fn events(&self, path: &str) -> TestEventStream {

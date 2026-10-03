@@ -22,6 +22,9 @@
 //!   synchronous code, and properties, action status and events observed
 //!   over WebSocket (`/{thing}/ws`) and server-sent
 //!   events, all described in the TD;
+//! - binary data: Blobs ([`Blob`], with media types in [`blob`]) as action
+//!   inputs and outputs, downloaded from `/blob/{id}`, and MJPEG streams
+//!   ([`MjpegStream`]) fed from any thread and watched in a browser;
 //! - [`td`]: the Thing Description model, its builders, and the conversion
 //!   from Rust types to TD `DataSchema`s;
 //! - with the `testing` feature, [`testing`]: helpers for testing Things,
@@ -68,11 +71,11 @@ pub mod testing {
 /// What Thing code usually needs.
 pub mod prelude {
     pub use teta_wot_core::{
-        Action, ActionCtx, ActionError, BoxFuture, CancelToken, Cancelled, Constraints,
+        Action, ActionCtx, ActionError, Blob, BoxFuture, CancelToken, Cancelled, Constraints,
         DataProperty, Dep, Device, DeviceError, DeviceOptions, Driver, Event, EventSpec,
-        FromConfig, FunctionalProperty, InvocationStatus, NoConfig, NoInput, OptSlot, Prop,
-        PropertyError, Runtime, Server, Slot, SlotMap, Thing, ThingCtx, ThingDefinition, ThingRef,
-        cancellable_sleep, check_cancelled,
+        FromConfig, FunctionalProperty, InvocationStatus, MjpegStream, NoConfig, NoInput, OptSlot,
+        Prop, PropertyError, Runtime, Server, Slot, SlotMap, Thing, ThingCtx, ThingDefinition,
+        ThingRef, cancellable_sleep, check_cancelled,
     };
     pub use teta_wot_macros::{Thing, interface, thing_impl};
     pub use teta_wot_server::ThingServer;

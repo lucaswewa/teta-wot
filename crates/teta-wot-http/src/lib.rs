@@ -22,6 +22,7 @@ mod endpoint;
 mod fallback;
 mod handlers;
 mod observe;
+mod output;
 mod render;
 mod routes;
 

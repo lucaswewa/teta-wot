@@ -11,14 +11,16 @@ use std::time::Duration;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use teta_wot_td::{
-    ActionAffordance, DataSchema, EventAffordance, Form, Operation, PropertyAffordance, TdError,
-    ThingDescription,
+    ActionAffordance, DataSchema, EventAffordance, Form, Link, Operation, PropertyAffordance,
+    TdError, ThingDescription,
 };
+
 use tracing::Level;
 use uuid::Uuid;
 
 use crate::BoxFuture;
 use crate::action::{ActionError, ActionHandler, ActionMeta};
+use crate::blob::Serialised;
 use crate::broker::MessageBroker;
 use crate::cancel::CancelToken;
 use crate::config::FromConfig;
@@ -35,6 +37,7 @@ use crate::reserved::affordance_name_problem;
 use crate::server::{Server, ServerShared, Service};
 use crate::settings::SettingsStore;
 use crate::slots::{SlotControl, SlotSelection};
+use crate::stream::{MJPEG_MEDIA_TYPE, MjpegStream};
 use crate::thing::{DefinitionError, InterfaceBuild, Thing, ThingCtx};
 use crate::validate::{LocItem, ValidationError};
 
@@ -526,6 +529,10 @@ pub struct TdOptions {
     /// The Thing's WebSocket URL (`ws://host/{prefix}/{thing}/ws`), for
     /// WebSocket forms next to the SSE ones, if `observation` is on.
     pub websocket: Option<String>,
+    /// Whether to list MJPEG streams, their viewer pages and linked custom
+    /// endpoints in the TD's `links`; the
+    /// HTTP binding always turns this on.
+    pub links: bool,
 }
 
 impl TdOptions {
@@ -537,6 +544,7 @@ impl TdOptions {
             id: None,
             observation: false,
             websocket: None,
+            links: false,
         }
     }
 }
@@ -552,6 +560,7 @@ pub struct ThingHandle {
     properties: IndexMap<String, PropertyEntry>,
     actions: IndexMap<String, ActionEntry>,
     events: IndexMap<String, EventEntry>,
+    streams: IndexMap<String, MjpegStream>,
     endpoints: Vec<EndpointEntry>,
     devices: Vec<(String, Arc<dyn DeviceControl>)>,
     class_name: String,
@@ -669,6 +678,12 @@ impl ThingHandle {
             );
         }
 
+        let mut streams = IndexMap::new();
+        for (stream_name, accessor) in definition.streams {
+            check(&stream_name)?;
+            streams.insert(stream_name, accessor(&thing).clone());
+        }
+
         let mut endpoints: Vec<EndpointEntry> = Vec::new();
         for spec in definition.endpoints {
             if let Some(problem) = endpoint::path_problem(&spec.path) {
@@ -690,6 +705,7 @@ impl ThingHandle {
                 method: spec.method,
                 path: spec.path,
                 description: spec.description,
+                link: spec.link,
             });
         }
 
@@ -717,6 +733,7 @@ impl ThingHandle {
             properties,
             actions,
             events,
+            streams,
             endpoints,
             devices,
             class_name,
@@ -825,6 +842,18 @@ impl ThingHandle {
     /// The actions, in definition order.
     pub fn actions(&self) -> impl Iterator<Item = &ActionEntry> {
         self.actions.values()
+    }
+
+    /// The MJPEG streams, by name, in definition order.
+    pub fn streams(&self) -> impl Iterator<Item = (&str, &MjpegStream)> {
+        self.streams
+            .iter()
+            .map(|(name, stream)| (name.as_str(), stream))
+    }
+
+    /// An MJPEG stream by name.
+    pub fn stream(&self, name: &str) -> Option<&MjpegStream> {
+        self.streams.get(name)
     }
 
     /// An event by name.
@@ -982,6 +1011,33 @@ impl ThingHandle {
             }
             td = td.event(&event.name, affordance);
         }
+
+        if options.links {
+            for name in self.streams.keys() {
+                let href = format!("{}{name}", options.path);
+                td = td
+                    .link(
+                        Link::new(&href)
+                            .with_rel("alternate")
+                            .with_media_type(MJPEG_MEDIA_TYPE),
+                    )
+                    .link(
+                        Link::new(format!("{href}/viewer"))
+                            .with_rel("alternate")
+                            .with_media_type("text/html"),
+                    );
+            }
+            for endpoint in &self.endpoints {
+                if let Some(link) = &endpoint.link {
+                    let mut entry =
+                        Link::new(format!("{}{}", options.path, endpoint.path)).with_rel(&link.rel);
+                    if let Some(media_type) = &link.media_type {
+                        entry = entry.with_media_type(media_type);
+                    }
+                    td = td.link(entry);
+                }
+            }
+        }
         td.build()
     }
 }
@@ -1115,7 +1171,16 @@ impl ActionEntry {
     ///
     /// Invalid input, a busy lock and the action's own failure are all
     /// returned as [`ActionError`]s.
+    ///
+    /// Blobs in the output are freed when the value is returned, unless
+    /// something else holds them: deserialise them through
+    /// [`ThingRef::call_action`], or call the typed `{Thing}Actions` method.
     pub async fn call(&self, input: Value) -> Result<Value, ActionError> {
+        Ok(self.call_serialised(input).await?.value)
+    }
+
+    /// [`call`](Self::call), with the output's Blobs kept alive.
+    pub(crate) async fn call_serialised(&self, input: Value) -> Result<Serialised, ActionError> {
         if input.is_null() && !accepts_null(self.handler.input_schema()) {
             return Err(ValidationError::missing(vec![LocItem::from("body")], Value::Null).into());
         }
@@ -1174,7 +1239,7 @@ fn accepts_null(schema: &DataSchema) -> bool {
 /// Runs an invocation to the end, inside its scope and span.
 async fn run_invocation(
     invocation: Arc<Invocation>,
-    future: BoxFuture<'static, Result<Value, ActionError>>,
+    future: BoxFuture<'static, Result<Serialised, ActionError>>,
     lock: Option<(Arc<GlobalLock>, Uuid)>,
     lock_log_level: Level,
 ) {

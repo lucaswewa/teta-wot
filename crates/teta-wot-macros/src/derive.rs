@@ -8,11 +8,8 @@ use syn::{Attribute, Data, DeriveInput, Expr, Field, Fields, LitStr, Meta, Type}
 
 use crate::common::{
     Errors, Options, affordance_name, collision_guard, default_expr, describe, docstring, error,
-    unwrap_type,
+    is_named, unwrap_type,
 };
-
-/// Field attributes for affordances that later phases implement.
-const LATER: [(&str, &str); 1] = [("stream", "MJPEG streams arrive with Blobs and streams")];
 
 /// `#[thing(…)]` on the struct.
 #[derive(Default)]
@@ -71,6 +68,10 @@ enum Kind {
     Property(Box<Options>, bool),
     /// An event.
     Event(Box<Options>),
+    /// An MJPEG stream, with its ring buffer size.
+    Stream {
+        buffer: Option<Expr>,
+    },
     /// A slot, with its default selection.
     Slot(TokenStream),
     Device {
@@ -133,11 +134,30 @@ pub fn expand(input: DeriveInput) -> syn::Result<TokenStream> {
                     format!("two affordances are named `{name}`"),
                 ));
             }
-            if matches!(kind, Kind::Property(..) | Kind::Event(..)) {
+            if matches!(
+                kind,
+                Kind::Property(..) | Kind::Event(..) | Kind::Stream { .. }
+            ) {
                 guards.push(collision_guard(name_ident));
             }
         }
         match kind {
+            Kind::Stream { buffer } => {
+                if !is_named(&field.ty, "MjpegStream") {
+                    errors.push(error(
+                        field.ty.span(),
+                        "a `#[stream]` field must be an `MjpegStream`",
+                    ));
+                    continue;
+                }
+                let name = affordance_name(name_ident).unwrap_or_default();
+                definition.push(quote!(.stream(#name, |thing: &Self| &thing.#name_ident)));
+                let make = match &buffer {
+                    Some(size) => quote!(::teta_wot::MjpegStream::with_buffer(#size)),
+                    None => quote!(::teta_wot::MjpegStream::new()),
+                };
+                inits.push(quote!(#name_ident: #make));
+            }
             Kind::Event(event) => {
                 let Some(data) = unwrap_type(&field.ty, "Event") else {
                     errors.push(error(
@@ -476,11 +496,19 @@ fn classify(field: &Field) -> syn::Result<Kind> {
                 }
             })?;
             None
-        } else if let Some((name, why)) = LATER.iter().find(|(name, _)| path.is_ident(name)) {
-            return Err(error(
-                path.span(),
-                format!("`#[{name}]` isn't supported yet: {why} in a later phase of the plan"),
-            ));
+        } else if path.is_ident("stream") {
+            let mut buffer = None;
+            if !matches!(attr.meta, Meta::Path(_)) {
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("buffer") {
+                        buffer = Some(meta.value()?.parse()?);
+                        Ok(())
+                    } else {
+                        Err(meta.error("unknown option for `#[stream]`; expected: buffer"))
+                    }
+                })?;
+            }
+            Some(Kind::Stream { buffer })
         } else {
             None
         };

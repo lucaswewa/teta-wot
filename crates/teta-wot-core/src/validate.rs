@@ -104,6 +104,20 @@ impl ValidationError {
         Self::single(issue("missing", loc, "Field required", input, None))
     }
 
+    /// pydantic's `value_error`, raised by a validator: `Value error, …`,
+    /// with an empty `ctx.error` (FastAPI's rendering of the exception).
+    pub fn value_error(loc: Vec<LocItem>, message: &str, input: Value) -> Self {
+        let mut ctx = Map::new();
+        ctx.insert("error".into(), Value::Object(Map::new()));
+        Self::single(issue(
+            "value_error",
+            loc,
+            &format!("Value error, {message}"),
+            input,
+            Some(ctx),
+        ))
+    }
+
     /// Wraps an error from deserialising an already-validated value, which
     /// means the schema allowed something the Rust type doesn't.
     pub fn from_serde(error: &serde_json::Error, loc: Vec<LocItem>, input: Value) -> Self {

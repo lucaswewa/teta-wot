@@ -17,6 +17,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::blob::{BlobData, Serialised};
 use crate::broker::{Message, MessageBroker, MessageKind};
 use crate::cancel::CancelToken;
 use crate::logs::{LogBuffer, LogRecord};
@@ -68,7 +69,7 @@ struct State {
     requested: DateTime<Utc>,
     started: Option<DateTime<Utc>>,
     completed: Option<DateTime<Utc>>,
-    output: Option<Value>,
+    output: Option<Serialised>,
     error: Option<ProblemDetails>,
     expires: Option<Instant>,
 }
@@ -79,7 +80,7 @@ pub struct Invocation {
     id: Uuid,
     thing: Arc<str>,
     action: Arc<str>,
-    input: Value,
+    input: Serialised,
     retention: Duration,
     cancel: CancelToken,
     logs: Arc<LogBuffer>,
@@ -121,7 +122,7 @@ impl Invocation {
         id: Uuid,
         thing: Arc<str>,
         action: Arc<str>,
-        input: Value,
+        input: Serialised,
         retention: Duration,
         cancel: CancelToken,
         logs: Arc<LogBuffer>,
@@ -170,7 +171,7 @@ impl Invocation {
 
     /// The validated input.
     pub fn input(&self) -> &Value {
-        &self.input
+        &self.input.value
     }
 
     /// The current status.
@@ -180,7 +181,15 @@ impl Invocation {
 
     /// The output, once completed.
     pub fn output(&self) -> Option<Value> {
-        self.state().output.clone()
+        self.state().output.as_ref().map(|o| o.value.clone())
+    }
+
+    /// The output's data.
+    pub fn output_blob(&self) -> Option<Arc<BlobData>> {
+        self.state()
+            .output
+            .as_ref()
+            .and_then(|o| o.as_blob().cloned())
     }
 
     /// What went wrong, for `error` and `cancelled` invocations.
@@ -209,8 +218,8 @@ impl Invocation {
             time_requested: state.requested,
             time_started: state.started,
             time_completed: state.completed,
-            input: self.input.clone(),
-            output: state.output.clone(),
+            input: self.input.value.clone(),
+            output: state.output.as_ref().map(|o| o.value.clone()),
             log: self.logs.records(),
             error: state.error.clone(),
         }
@@ -248,7 +257,7 @@ impl Invocation {
     pub(crate) fn finish(
         &self,
         status: InvocationStatus,
-        output: Option<Value>,
+        output: Option<Serialised>,
         error: Option<ProblemDetails>,
     ) {
         debug_assert!(status.is_finished());

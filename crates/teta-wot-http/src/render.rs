@@ -114,11 +114,12 @@ pub(crate) fn invocation(record: &InvocationRecord, urls: &Urls, full: bool) -> 
         ]),
     );
     if full {
-        out.insert("input".into(), record.input.clone());
-        out.insert(
-            "output".into(),
-            record.output.clone().unwrap_or(Value::Null),
-        );
+        let mut input = record.input.clone();
+        let mut output = record.output.clone().unwrap_or(Value::Null);
+        crate::output::resolve_blobs(&mut input, urls);
+        crate::output::resolve_blobs(&mut output, urls);
+        out.insert("input".into(), input);
+        out.insert("output".into(), output);
         out.insert(
             "log".into(),
             serde_json::to_value(&record.log).unwrap_or_default(),
@@ -164,7 +165,7 @@ pub(crate) fn problem(problem: &ProblemDetails) -> Response {
     json(status, &serde_json::to_value(problem).unwrap_or_default())
 }
 
-/// A 201 for a new invocation, with its URL in `Location` (gap G7).
+/// A 201 for a new invocation, with its URL in `Location`.
 pub(crate) fn created(record: &InvocationRecord, urls: &Urls) -> Response {
     let mut response = json(StatusCode::CREATED, &invocation(record, urls, true));
     if let Ok(location) = HeaderValue::from_str(&urls.invocation_href(&record.id)) {

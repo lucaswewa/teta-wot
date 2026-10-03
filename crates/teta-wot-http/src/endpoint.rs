@@ -62,6 +62,14 @@ impl<T: Send + Sync + 'static> Endpoint<T> {
         self.spec = self.spec.description(description);
         self
     }
+
+    /// Lists the endpoint in the TD's `links`: see
+    /// [`EndpointSpec::link`].
+    #[must_use]
+    pub fn link(mut self, rel: impl Into<String>, media_type: Option<&str>) -> Self {
+        self.spec = self.spec.link(rel, media_type);
+        self
+    }
 }
 
 impl<T> From<Endpoint<T>> for EndpointSpec<T> {

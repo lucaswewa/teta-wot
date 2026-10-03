@@ -38,6 +38,18 @@ pub(crate) enum Endpoint {
         event: String,
     },
     ListInvocations,
+    /// `GET {prefix}/blob/{id}`.
+    DownloadBlob,
+    /// An MJPEG stream.
+    Stream {
+        thing: String,
+        stream: String,
+    },
+    /// An MJPEG stream's viewer page.
+    StreamViewer {
+        thing: String,
+        stream: String,
+    },
     GetInvocation,
     CancelInvocation,
     InvocationOutput,
@@ -119,6 +131,11 @@ impl Routes {
             Endpoint::CancelInvocation,
         );
         routes.add(
+            &format!("{prefix}/blob/{{id}}"),
+            Method::GET,
+            Endpoint::DownloadBlob,
+        );
+        routes.add(
             &format!("{prefix}/thing_descriptions/"),
             Method::GET,
             Endpoint::ThingDescriptions,
@@ -192,6 +209,23 @@ impl Routes {
                         thing: name.to_owned(),
                         event: event.name().to_owned(),
                     },
+                );
+            }
+            for (stream, _) in thing.streams() {
+                let path = format!("{base}{stream}");
+                let (thing, stream) = (name.to_owned(), stream.to_owned());
+                routes.add(
+                    &path,
+                    Method::GET,
+                    Endpoint::Stream {
+                        thing: thing.clone(),
+                        stream: stream.clone(),
+                    },
+                );
+                routes.add(
+                    &format!("{path}/viewer"),
+                    Method::GET,
+                    Endpoint::StreamViewer { thing, stream },
                 );
             }
             for endpoint in thing.endpoints() {

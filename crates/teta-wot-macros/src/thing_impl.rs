@@ -71,6 +71,9 @@ struct Endpoint {
     method: ImplItemFn,
     http_method: String,
     path: String,
+    /// The TD link's relation type and media type, if the endpoint is linked.
+    rel: Option<LitStr>,
+    media_type: Option<LitStr>,
 }
 
 pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream> {
@@ -554,14 +557,33 @@ fn parse_accessor(attr: &Attribute, method: ImplItemFn) -> syn::Result<(Ident, A
 }
 
 fn parse_endpoint(attr: &Attribute, method: ImplItemFn) -> syn::Result<Endpoint> {
-    let (verb, path) = attr.parse_args_with(|input: ParseStream<'_>| {
+    let (verb, path, rel, media_type) = attr.parse_args_with(|input: ParseStream<'_>| {
         let verb: Ident = input.parse()?;
-        let path = if input.parse::<Option<Token![,]>>()?.is_some() {
-            Some(input.parse::<LitStr>()?)
-        } else {
-            None
-        };
-        Ok((verb, path))
+        let mut path = None;
+        let (mut rel, mut media_type) = (None, None);
+        while input.parse::<Option<Token![,]>>()?.is_some() {
+            if input.is_empty() {
+                break;
+            }
+            if input.peek(LitStr) && path.is_none() && rel.is_none() && media_type.is_none() {
+                path = Some(input.parse::<LitStr>()?);
+                continue;
+            }
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            let value: LitStr = input.parse()?;
+            match key.to_string().as_str() {
+                "rel" => rel = Some(value),
+                "media_type" => media_type = Some(value),
+                _ => {
+                    return Err(error(
+                        key.span(),
+                        "unknown option for `#[endpoint]`; expected the path, then: rel, media_type",
+                    ));
+                }
+            }
+        }
+        Ok((verb, path, rel, media_type))
     })?;
     let http_method = verb.to_string().to_ascii_uppercase();
     if !["GET", "POST", "PUT", "DELETE", "PATCH"].contains(&http_method.as_str()) {
@@ -570,12 +592,20 @@ fn parse_endpoint(attr: &Attribute, method: ImplItemFn) -> syn::Result<Endpoint>
             "expected an HTTP method: get, post, put, delete or patch",
         ));
     }
+    if let (None, Some(media_type)) = (&rel, &media_type) {
+        return Err(error(
+            media_type.span(),
+            "`media_type` describes the endpoint's link in the TD: give its `rel` too",
+        ));
+    }
     check_method(&method, "endpoint", None)?;
     let path = path.map_or_else(|| method.sig.ident.to_string(), |p| p.value());
     Ok(Endpoint {
         method,
         http_method,
         path,
+        rel,
+        media_type,
     })
 }
 
@@ -933,13 +963,20 @@ fn endpoint_tokens(endpoint: &Endpoint) -> TokenStream {
         .collect();
     let types = typed_params(&endpoint.method).map(|t| &t.ty);
     let description = docstring(&endpoint.method.attrs).map(|d| quote!(.description(#d)));
+    let link = endpoint.rel.as_ref().map(|rel| {
+        let media_type = match &endpoint.media_type {
+            Some(media_type) => quote!(::core::option::Option::Some(#media_type)),
+            None => quote!(::core::option::Option::None),
+        };
+        quote!(.link(#rel, #media_type))
+    });
     quote! {
         .endpoint(::teta_wot::http::Endpoint::new(#http_method, #path, |__thing: ::std::sync::Arc<Self>| {
             move |#(#args: #types),*| {
                 let __thing = ::std::sync::Arc::clone(&__thing);
                 async move { __thing.#method(#(#args),*).await }
             }
-        }) #description)
+        }) #description #link)
     }
 }
 

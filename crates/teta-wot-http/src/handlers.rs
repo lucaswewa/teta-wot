@@ -7,15 +7,16 @@ use axum::extract::{Request, State};
 use axum::response::Response;
 use http::{HeaderValue, Method, StatusCode};
 use serde_json::{Map, Value, json};
+use teta_wot_core::blob::BlobData;
 use teta_wot_core::invocation::CancelError;
 use teta_wot_core::{LocItem, PropertyError, Runtime, TdOptions, ValidationIssue};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use crate::observe;
 use crate::render::{self, Urls, created, detail, problem, redirect, unprocessable};
 use crate::routes::{Endpoint, Found, Routes};
 use crate::{HttpOptions, td_id};
+use crate::{observe, output};
 
 /// The largest request body read (64 MiB).
 const BODY_LIMIT: usize = 64 * 1024 * 1024;
@@ -33,7 +34,8 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
     // WebSocket routes, `/{thing}/ws` doesn't answer plain HTTP.
     if let Some(thing) = observe::websocket_thing(&app.runtime, &app.options.api_prefix, &parts) {
         drain(body).await;
-        return observe::upgrade(Arc::clone(app.runtime.broker()), thing, parts).await;
+        let urls = Urls::from_request(&parts, &app.options.api_prefix);
+        return observe::upgrade(Arc::clone(app.runtime.broker()), thing, urls, parts).await;
     }
     let head = parts.method == Method::HEAD;
     let urls = Urls::from_request(&parts, &app.options.api_prefix);
@@ -57,11 +59,24 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
                         .is_some_and(|p| p.is_observable()) =>
             {
                 drain(body).await;
-                observe::event_stream(app.runtime.broker(), thing, property)
+                observe::event_stream(app.runtime.broker(), thing, property, urls.clone())
             }
             Endpoint::SubscribeEvent { thing, event } => {
                 drain(body).await;
-                observe::event_stream(app.runtime.broker(), thing, event)
+                observe::event_stream(app.runtime.broker(), thing, event, urls)
+            }
+            Endpoint::Stream { thing, stream } => {
+                drain(body).await;
+                match app.runtime.thing(thing).and_then(|t| t.stream(stream)) {
+                    Some(stream) => {
+                        output::mjpeg_response(stream, Arc::clone(app.runtime.broker()))
+                    }
+                    None => detail(StatusCode::NOT_FOUND, "Not Found"),
+                }
+            }
+            Endpoint::StreamViewer { thing, stream } => {
+                drain(body).await;
+                output::viewer_page(&format!("{}{stream}", urls.thing_path(thing)))
             }
             Endpoint::WriteProperty { .. } | Endpoint::InvokeAction { .. } => {
                 app.endpoint(&route.endpoint, param, &urls, body).await
@@ -123,7 +138,10 @@ impl App {
         let invocations = self.runtime.invocations();
         match endpoint {
             // Answered by `dispatch`, which needs the whole request.
-            Endpoint::Custom(_) | Endpoint::SubscribeEvent { .. } => {
+            Endpoint::Custom(_)
+            | Endpoint::SubscribeEvent { .. }
+            | Endpoint::Stream { .. }
+            | Endpoint::StreamViewer { .. } => {
                 detail(StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error")
             }
             Endpoint::ThingDescription { thing } => match self.td(thing, urls) {
@@ -159,7 +177,10 @@ impl App {
                     return detail(StatusCode::NOT_FOUND, "Not Found");
                 };
                 match entry.read().await {
-                    Ok(value) => render::json(StatusCode::OK, &value),
+                    Ok(mut value) => {
+                        output::resolve_blobs(&mut value, urls);
+                        render::json(StatusCode::OK, &value)
+                    }
                     Err(error) => property_error(thing, error),
                 }
             }
@@ -217,7 +238,7 @@ impl App {
                 render::json(StatusCode::OK, &Value::Array(list))
             }
             Endpoint::GetInvocation => {
-                let id = match parse_id(param.as_deref()) {
+                let id = match parse_id(param.as_deref(), "id") {
                     Ok(id) => id,
                     Err(response) => return response,
                 };
@@ -233,7 +254,7 @@ impl App {
                 }
             }
             Endpoint::CancelInvocation => {
-                let id = match parse_id(param.as_deref()) {
+                let id = match parse_id(param.as_deref(), "id") {
                     Ok(id) => id,
                     Err(response) => return response,
                 };
@@ -248,7 +269,7 @@ impl App {
                 }
             }
             Endpoint::InvocationOutput => {
-                let id = match parse_id(param.as_deref()) {
+                let id = match parse_id(param.as_deref(), "id") {
                     Ok(id) => id,
                     Err(response) => return response,
                 };
@@ -258,14 +279,31 @@ impl App {
                         &CancelError::NotFound(id).to_string(),
                     );
                 };
+                // A Blob output is its data.
+                if let Some(blob) = invocation.output_blob() {
+                    return output::blob_response(blob).await;
+                }
                 // Reference bug B3 fixed: falsy outputs such as 0 are returned;
                 // only a missing or null output is "no result".
                 match invocation.output() {
-                    Some(output) if !output.is_null() => render::json(StatusCode::OK, &output),
+                    Some(mut output) if !output.is_null() => {
+                        output::resolve_blobs(&mut output, urls);
+                        render::json(StatusCode::OK, &output)
+                    }
                     _ => detail(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "No result is available for this invocation",
                     ),
+                }
+            }
+            Endpoint::DownloadBlob => {
+                let id = match parse_id(param.as_deref(), "blob_id") {
+                    Ok(id) => id,
+                    Err(response) => return response,
+                };
+                match BlobData::find(id) {
+                    Some(data) => output::blob_response(data).await,
+                    None => detail(StatusCode::NOT_FOUND, "Blob not found"),
                 }
             }
         }
@@ -283,6 +321,7 @@ impl App {
             id: Some(td_id(&self.options.server_id, thing)),
             observation: true,
             websocket: Some(urls.websocket(thing)),
+            links: true,
         };
         let td = handle
             .thing_description(&options)
@@ -345,16 +384,16 @@ fn char_offset(text: &str, line: usize, column: usize) -> usize {
     before + column.saturating_sub(1)
 }
 
-/// Parses the invocation ID in the path, or answers 422.
+/// Parses the ID in the path (the parameter `name`), or answers FastAPI's 422.
 #[allow(clippy::result_large_err)]
-fn parse_id(raw: Option<&str>) -> Result<Uuid, Response> {
+fn parse_id(raw: Option<&str>, name: &str) -> Result<Uuid, Response> {
     let raw = raw.unwrap_or_default();
     Uuid::parse_str(raw).map_err(|error| {
         let mut ctx = Map::new();
         ctx.insert("error".into(), json!(error.to_string()));
         unprocessable(&[ValidationIssue {
             kind: "uuid_parsing".into(),
-            loc: vec![LocItem::from("path"), LocItem::from("id")],
+            loc: vec![LocItem::from("path"), LocItem::from(name)],
             msg: format!("Input should be a valid UUID, {error}"),
             input: json!(raw),
             ctx: Some(ctx),

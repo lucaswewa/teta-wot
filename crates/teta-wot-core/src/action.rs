@@ -15,6 +15,7 @@ use teta_wot_td::DataSchema;
 use tokio::task::JoinError;
 
 use crate::BoxFuture;
+use crate::blob::Serialised;
 use crate::cancel::Cancelled;
 use crate::context::{ActionCtx, panic_message};
 use crate::lock::GlobalLockBusy;
@@ -349,7 +350,13 @@ pub(crate) trait ActionHandler: Send + Sync {
         &self,
         input: &Value,
         ctx: ActionCtx,
-    ) -> Result<(Value, BoxFuture<'static, Result<Value, ActionError>>), ValidationError>;
+    ) -> Result<
+        (
+            Serialised,
+            BoxFuture<'static, Result<Serialised, ActionError>>,
+        ),
+        ValidationError,
+    >;
     /// Validates the input, and returns it coerced.
     fn validate(&self, input: &Value) -> Result<Value, ValidationError>;
 }
@@ -379,15 +386,21 @@ where
         &self,
         input: &Value,
         ctx: ActionCtx,
-    ) -> Result<(Value, BoxFuture<'static, Result<Value, ActionError>>), ValidationError> {
+    ) -> Result<
+        (
+            Serialised,
+            BoxFuture<'static, Result<Serialised, ActionError>>,
+        ),
+        ValidationError,
+    > {
         let typed: I = from_client(&self.input, input)?;
-        let echo = serde_json::to_value(&typed).unwrap_or(Value::Null);
+        let echo = Serialised::new(&typed).unwrap_or_default();
         let future = (self.handler)(Arc::clone(&self.thing), ctx, typed);
         Ok((
             echo,
             Box::pin(async move {
                 let output = future.await?;
-                Ok(serde_json::to_value(output)?)
+                Ok(Serialised::new(&output)?)
             }),
         ))
     }

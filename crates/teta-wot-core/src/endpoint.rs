@@ -21,6 +21,7 @@ pub struct EndpointSpec<T> {
     pub(crate) method: String,
     pub(crate) path: String,
     pub(crate) description: Option<String>,
+    pub(crate) link: Option<EndpointLink>,
     pub(crate) build: BuildFn<T>,
 }
 
@@ -45,6 +46,7 @@ impl<T> EndpointSpec<T> {
             method: method.into().to_ascii_uppercase(),
             path: path.into(),
             description: None,
+            link: None,
             build: Box::new(build),
         }
     }
@@ -55,6 +57,28 @@ impl<T> EndpointSpec<T> {
         self.description = Some(description.into());
         self
     }
+
+    /// Lists the endpoint in the Thing Description's `links`,
+    /// with a relation type (such as `related` or `alternate`) and,
+    /// optionally, the media type it returns. Endpoints aren't listed
+    /// otherwise.
+    #[must_use]
+    pub fn link(mut self, rel: impl Into<String>, media_type: Option<&str>) -> Self {
+        self.link = Some(EndpointLink {
+            rel: rel.into(),
+            media_type: media_type.map(str::to_owned),
+        });
+        self
+    }
+}
+
+/// How an endpoint is listed in the TD's `links`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointLink {
+    /// The relation type.
+    pub rel: String,
+    /// The media type of what it returns, if given.
+    pub media_type: Option<String>,
 }
 
 /// An endpoint of a running Thing.
@@ -63,6 +87,7 @@ pub struct EndpointEntry {
     pub(crate) method: String,
     pub(crate) path: String,
     pub(crate) description: Option<String>,
+    pub(crate) link: Option<EndpointLink>,
     pub(crate) handler: EndpointHandler,
 }
 
@@ -89,6 +114,11 @@ impl EndpointEntry {
     /// The description.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// How it is listed in the TD's `links`, if it is.
+    pub fn link(&self) -> Option<&EndpointLink> {
+        self.link.as_ref()
     }
 
     /// The handler, for the HTTP binding to downcast.

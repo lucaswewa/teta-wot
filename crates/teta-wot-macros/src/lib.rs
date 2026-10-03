@@ -103,7 +103,11 @@ pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
 ///   comment gives the title and description, and `T`'s
 ///   schema the TD's `data`. Options: `title`, `description`,
 ///   `semantic_type` (repeatable).
-/// - `#[stream]` is reserved for a later phase of the plan.
+/// - `#[stream]` or `#[stream(buffer = n)]` on an `MjpegStream` field: an
+///   MJPEG stream at `/{thing}/{name}`, with a viewer page at
+///   `…/viewer`, linked from the TD. Frames are added with
+///   `self.field.add_frame(jpeg)`, from any thread. The ring buffer keeps
+///   `n` frames (10 by default).
 ///
 /// Methods (actions, functional properties, endpoints, lifecycle hooks) go in
 /// a `#[thing_impl]` block.
@@ -165,6 +169,8 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///   parameters are axum extractors, and it returns a type that implements
 ///   `IntoResponse`. Return a concrete type (such as `Response`) rather than
 ///   `impl IntoResponse`, which in edition 2024 would borrow `&self`.
+///   `rel = "related"` (and optionally `media_type = "text/csv"`) lists it
+///   in the TD's `links`.
 /// - `#[on_start]`, `#[on_stop]`: lifecycle hooks, taking `&self` and
 ///   optionally a `ThingCtx`.
 /// - `#[thing_state]`: a synchronous `&self` method returning a

@@ -16,6 +16,7 @@ use crate::property::PropertySpec;
 use crate::runtime::ThingHandle;
 use crate::server::Server;
 use crate::slots::{SlotAccess, SlotControl, SlotField, SlotSelection};
+use crate::stream::MjpegStream;
 
 /// A Thing type.
 ///
@@ -87,6 +88,7 @@ type SlotBuild<T> = Box<dyn FnOnce(&Arc<T>) -> Arc<dyn SlotControl> + Send>;
 pub(crate) type InterfaceBuild =
     Arc<dyn Fn(&Arc<ThingHandle>) -> Option<Box<dyn Any + Send + Sync>> + Send + Sync>;
 type StateFn<T> = Box<dyn Fn(&T) -> Value + Send + Sync>;
+type StreamAccessor<T> = fn(&T) -> &MjpegStream;
 
 /// The affordances and metadata of a Thing type, built with chained calls.
 ///
@@ -122,6 +124,7 @@ pub struct ThingDefinition<T> {
     pub(crate) properties: Vec<(String, PropertySpec<T>)>,
     pub(crate) actions: Vec<(String, ActionSpec<T>)>,
     pub(crate) events: Vec<(String, EventSpec<T>)>,
+    pub(crate) streams: Vec<(String, StreamAccessor<T>)>,
     pub(crate) devices: Vec<(String, DeviceBuild<T>)>,
     pub(crate) endpoints: Vec<EndpointSpec<T>>,
     pub(crate) class_name: Option<String>,
@@ -142,6 +145,7 @@ impl<T: Thing> ThingDefinition<T> {
             properties: Vec::new(),
             actions: Vec::new(),
             events: Vec::new(),
+            streams: Vec::new(),
             devices: Vec::new(),
             endpoints: Vec::new(),
             class_name: None,
@@ -260,6 +264,14 @@ impl<T: Thing> ThingDefinition<T> {
     /// Adds an event: an [`Event`](crate::Event) field of the Thing.
     pub fn event(mut self, name: impl Into<String>, event: EventSpec<T>) -> Self {
         self.events.push((name.into(), event));
+        self
+    }
+
+    /// Adds an MJPEG stream held in a field: served at `/{thing}/{name}`, with a viewer
+    /// page at `/{thing}/{name}/viewer`, and linked from the TD.
+    /// Its name shares the affordances' namespace.
+    pub fn stream(mut self, name: impl Into<String>, accessor: fn(&T) -> &MjpegStream) -> Self {
+        self.streams.push((name.into(), accessor));
         self
     }
 

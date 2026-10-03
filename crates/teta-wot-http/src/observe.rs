@@ -35,6 +35,9 @@ use http::{HeaderMap, Method};
 use serde_json::{Map, Value, json};
 use teta_wot_core::{Message, MessageBroker, MessageKind, Runtime, Subscription, ThingHandle};
 
+use crate::output::resolve_blobs;
+use crate::render::Urls;
+
 /// Where the error `type` URIs of the Web Thing Protocol live.
 const WEBTHING_ERROR_URL: &str = "https://w3c.github.io/web-thing-protocol/errors";
 
@@ -72,17 +75,23 @@ pub(crate) fn websocket_thing(
 pub(crate) async fn upgrade(
     broker: Arc<MessageBroker>,
     thing: Arc<ThingHandle>,
+    urls: Urls,
     mut parts: Parts,
 ) -> Response {
     match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-        Ok(upgrade) => upgrade.on_upgrade(move |socket| serve(socket, broker, thing)),
+        Ok(upgrade) => upgrade.on_upgrade(move |socket| serve(socket, broker, thing, urls)),
         Err(rejection) => rejection.into_response(),
     }
 }
 
 /// Relays notifications to the socket, and handles what the client sends,
 /// until either side closes.
-async fn serve(mut socket: WebSocket, broker: Arc<MessageBroker>, thing: Arc<ThingHandle>) {
+async fn serve(
+    mut socket: WebSocket,
+    broker: Arc<MessageBroker>,
+    thing: Arc<ThingHandle>,
+    urls: Urls,
+) {
     let mut subscription = broker.subscription();
     loop {
         tokio::select! {
@@ -106,7 +115,7 @@ async fn serve(mut socket: WebSocket, broker: Arc<MessageBroker>, thing: Arc<Thi
             },
             message = subscription.recv() => match message {
                 Some(message) => {
-                    if socket.send(text_message(&relay(&message))).await.is_err() {
+                    if socket.send(text_message(&relay(&message, &urls))).await.is_err() {
                         return;
                     }
                 }
@@ -171,8 +180,7 @@ impl Target {
         }
     }
 
-    /// The `operation` of an error response: `observe{type}`
-    /// for properties and actions, the TD operation for events.
+    /// The `operation` of an error response.
     fn operation(self) -> &'static str {
         match self {
             Self::Property => "observeproperty",
@@ -260,7 +268,9 @@ fn error_response(name: &str, target: Target, refusal: Refusal) -> Value {
 }
 
 /// A notification.
-fn relay(message: &Message) -> Value {
+fn relay(message: &Message, urls: &Urls) -> Value {
+    let mut payload = message.payload.clone();
+    resolve_blobs(&mut payload, urls);
     let keyed = |value: Value| {
         let mut data = Map::new();
         data.insert(message.affordance.clone(), value);
@@ -269,17 +279,17 @@ fn relay(message: &Message) -> Value {
     match message.kind {
         MessageKind::Property => json!({
             "messageType": "propertyStatus",
-            "data": keyed(message.payload.clone()),
+            "data": keyed(payload),
         }),
         MessageKind::Action => json!({
             "messageType": "actionStatus",
-            "data": {"action name": message.affordance, "status": message.payload},
+            "data": {"action name": message.affordance, "status": payload},
         }),
-        // As the Mozilla Web Thing API.
+        // A Mozilla Web Thing API dialect.
         MessageKind::Event => json!({
             "messageType": "event",
             "data": keyed(json!({
-                "data": message.payload,
+                "data": payload,
                 "timestamp": message.time.to_rfc3339_opts(SecondsFormat::Micros, true),
             })),
         }),
@@ -305,13 +315,23 @@ pub(crate) fn wants_event_stream(headers: &HeaderMap) -> bool {
 
 /// A server-sent events stream of one affordance's messages: each
 /// property value or event's data, as JSON.
-pub(crate) fn event_stream(broker: &MessageBroker, thing: &str, affordance: &str) -> Response {
+pub(crate) fn event_stream(
+    broker: &MessageBroker,
+    thing: &str,
+    affordance: &str,
+    urls: Urls,
+) -> Response {
     let subscription = broker.subscribe(thing, affordance);
-    let events = futures_util::stream::unfold(subscription, |mut subscription| async move {
-        let message = subscription.recv().await?;
-        let event = SseEvent::default().data(message.payload.to_string());
-        Some((Ok::<_, Infallible>(event), subscription))
-    });
+    let events = futures_util::stream::unfold(
+        (subscription, urls),
+        |(mut subscription, urls)| async move {
+            let message = subscription.recv().await?;
+            let mut payload = message.payload;
+            resolve_blobs(&mut payload, &urls);
+            let event = SseEvent::default().data(payload.to_string());
+            Some((Ok::<_, Infallible>(event), (subscription, urls)))
+        },
+    );
     Sse::new(events)
         .keep_alive(KeepAlive::default())
         .into_response()
@@ -338,15 +358,19 @@ mod tests {
     #[test]
     fn relayed_messages() {
         let message = |kind, payload| Message::new("thing", "name", kind, payload);
+        let urls = Urls {
+            origin: "http://host".into(),
+            prefix: String::new(),
+        };
         assert_eq!(
-            relay(&message(MessageKind::Property, json!(3))),
+            relay(&message(MessageKind::Property, json!(3)), &urls),
             json!({"messageType": "propertyStatus", "data": {"name": 3}})
         );
         assert_eq!(
-            relay(&message(MessageKind::Action, json!("running"))),
+            relay(&message(MessageKind::Action, json!("running")), &urls),
             json!({"messageType": "actionStatus", "data": {"action name": "name", "status": "running"}})
         );
-        let event = relay(&message(MessageKind::Event, json!({"a": 1})));
+        let event = relay(&message(MessageKind::Event, json!({"a": 1})), &urls);
         assert_eq!(event["messageType"], "event");
         assert_eq!(event["data"]["name"]["data"], json!({"a": 1}));
         assert!(

@@ -79,8 +79,9 @@ impl<T: Thing> ThingRef<T> {
         input: impl Serialize,
     ) -> Result<O, ActionError> {
         let entry = Self::action_entry(this, action)?;
-        let output = entry.call(serde_json::to_value(input)?).await?;
-        Ok(serde_json::from_value(output)?)
+        // `input` and `output` hold their Blobs until they are deserialised.
+        let output = entry.call_serialised(serde_json::to_value(&input)?).await?;
+        Ok(serde_json::from_value(output.value.clone())?)
     }
 
     /// Reads a property by name, as a client would.

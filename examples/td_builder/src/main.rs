@@ -34,7 +34,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .id("urn:uuid:6f1e4bd2-2f3c-5b1a-9d7e-3c1f0a2b4c5d")
         .description("A dimmable LED illuminator for a microscope.")
         .base("http://localhost:5000/")
-        // Semantic annotations need a prefix in the @context (gap G17).
+        // Semantic annotations need a prefix in the @context.
         .context_prefix("saref", "https://saref.etsi.org/core/")
         .semantic_type("saref:Actuator")
         .property(

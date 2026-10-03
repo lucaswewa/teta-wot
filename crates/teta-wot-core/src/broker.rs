@@ -221,6 +221,13 @@ impl MessageBroker {
         *self.closed.borrow()
     }
 
+    /// Completes when the broker is closed, which the server does when it
+    /// starts shutting down: other long responses (MJPEG streams) end then.
+    pub async fn closed(&self) {
+        let mut closed = self.closed.subscribe();
+        let _ = closed.wait_for(|closed| *closed).await;
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Subscribers> {
         self.subscribers.lock().unwrap_or_else(|e| e.into_inner())
     }

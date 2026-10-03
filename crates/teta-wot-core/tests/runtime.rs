@@ -671,6 +671,7 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
             id: None,
             observation: false,
             websocket: None,
+            links: false,
         }
     );
     let td = serde_json::to_value(
@@ -681,6 +682,7 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
                 id: Some("thing_id".into()),
                 observation: false,
                 websocket: None,
+                links: false,
             })
             .unwrap(),
     )

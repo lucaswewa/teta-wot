@@ -199,6 +199,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
+name = "blob-camera"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "jpeg-encoder",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "teta-wot",
+ "tokio",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -835,6 +849,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -983,6 +1003,18 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "mjpeg-stream"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "http-body-util",
+ "jpeg-encoder",
+ "serde_json",
+ "teta-wot",
+ "tokio",
 ]
 
 [[package]]
@@ -1641,6 +1673,7 @@ name = "teta-wot"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "http-body-util",
  "schemars",
  "serde",
  "serde_json",
@@ -1654,6 +1687,7 @@ dependencies = [
  "tokio",
  "tracing",
  "trybuild",
+ "uuid",
 ]
 
 [[package]]
@@ -1661,6 +1695,7 @@ name = "teta-wot-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "chrono",
  "indexmap",
  "insta",
@@ -1668,6 +1703,8 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "serde_path_to_error",
+ "tempfile",
  "teta-wot-core",
  "teta-wot-td",
  "thiserror",

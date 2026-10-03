@@ -15,6 +15,10 @@
 //! - [`Prop<T>`], [`DataProperty`] and [`FunctionalProperty`]: property
 //!   cells with validation and change notification, and properties backed
 //!   by async getters and setters.
+//! - [`Blob<M>`](Blob): binary action inputs and outputs, in memory, in
+//!   files or at URLs, kept while an invocation or a handle holds them.
+//! - [`MjpegStream`]: JPEG frames pushed from any thread, served to many
+//!   clients as MJPEG.
 //! - [`Event<T>`] and [`EventSpec`]: events a Thing emits, from async or
 //!   synchronous code.
 //! - [`Action`], [`ActionCtx`] and [`ActionError`]: async actions with
@@ -31,6 +35,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod action;
+pub mod blob;
 pub mod broker;
 pub mod cancel;
 pub mod config;
@@ -50,6 +55,7 @@ pub mod runtime;
 pub mod server;
 pub mod settings;
 pub mod slots;
+pub mod stream;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod thing;
@@ -60,6 +66,7 @@ pub mod validate;
 pub mod __private;
 
 pub use action::{Action, ActionError, ActionSpec, DEFAULT_RETENTION, NoInput};
+pub use blob::{Blob, MediaType};
 pub use broker::{Message, MessageBroker, MessageKind, Subscription};
 pub use cancel::{CancelToken, Cancelled};
 pub use config::{FromConfig, NoConfig};
@@ -86,6 +93,7 @@ pub use runtime::{
 pub use server::{Dep, Server};
 pub use settings::to_settings_json;
 pub use slots::{OptSlot, Slot, SlotField, SlotKind, SlotMap, SlotSelection, SlotTarget};
+pub use stream::MjpegStream;
 pub use teta_wot_td::Constraints;
 pub use thing::{DefinitionError, Thing, ThingCtx, ThingDefinition, split_docstring};
 pub use validate::{LocItem, ValidationError, ValidationIssue};

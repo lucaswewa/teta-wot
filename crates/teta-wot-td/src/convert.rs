@@ -13,7 +13,7 @@
 //! 3. **`prefixItems` becomes `items`** (an array: the TD form of a tuple).
 //!    An `items: false` next to it is dropped, because `maxItems` already
 //!    closes the tuple. Any other `items` next to it is an error.
-//! 4. **A `type` array becomes `oneOf`** (gap G9): TD `type` must be a single
+//! 4. **A `type` array becomes `oneOf`**: TD `type` must be a single
 //!    string. Keywords that only apply to one type (`minimum`, `items`,
 //!    `properties`, …) move into that type's branch, and `enum`/`const`
 //!    values go to the branch of their own type. Redundant types are removed;
@@ -454,7 +454,7 @@ fn merge(mut base: Map<String, Value>, overrides: Map<String, Value>) -> Map<Str
     base
 }
 
-/// Replaces a `type` array with a `oneOf` of single-type branches (gap G9).
+/// Replaces a `type` array with a `oneOf` of single-type branches.
 fn split_type_array(
     obj: &mut Map<String, Value>,
     types: &[Value],
