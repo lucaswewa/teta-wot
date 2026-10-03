@@ -50,6 +50,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "registry", "fmt", "ansi", "env-filter"] }
 trybuild = "1.0.119"
 uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
+windows-service = "0.8"
 
 [workspace.lints.rust]
 missing_docs = "warn"

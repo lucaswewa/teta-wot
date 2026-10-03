@@ -21,6 +21,9 @@ mdns = ["teta-wot-server/mdns"]
 ## `NdArray`: `ndarray` arrays as properties and action inputs and outputs,
 ## carried as nested lists (`teta_wot::ndarray` re-exports the crate).
 ndarray = ["teta-wot-core/ndarray", "dep:ndarray"]
+## Run a server as a Windows service, and install one
+## (`teta_wot::server::service`). Windows only.
+windows-service = ["teta-wot-server/windows-service"]
 
 [dependencies]
 ndarray = { workspace = true, optional = true }

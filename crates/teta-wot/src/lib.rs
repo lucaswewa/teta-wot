@@ -59,6 +59,9 @@ pub mod server {
         Security, WireProfile, default_server_id, fallback_router, openapi, operation_id,
         problem_type, td_id, thing_description,
     };
+    /// Running as a Windows service (feature `windows-service`).
+    #[cfg(all(windows, feature = "windows-service"))]
+    pub use teta_wot_server::service;
     pub use teta_wot_server::{
         ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, SecurityConfig,
         ServeError, ServerBuildError, ServerConfig, ThingConfig, ThingRegistry, ThingServer,

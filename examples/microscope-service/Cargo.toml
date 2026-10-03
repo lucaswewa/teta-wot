@@ -1,0 +1,19 @@
+[package]
+name = "microscope-service"
+description = "Example: the simulated microscope installed and run as a Windows service, stopping gracefully when the service stops."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+simulated-microscope = { path = "../simulated-microscope" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+teta-wot = { workspace = true, features = ["windows-service"] }
+
+[lints]
+workspace = true

@@ -38,6 +38,8 @@ mod config;
 #[cfg(feature = "mdns")]
 mod mdns;
 mod registry;
+#[cfg(all(windows, feature = "windows-service"))]
+pub mod service;
 
 pub use config::{
     ConfigError, RESERVED_CONFIG_THING_NAMES, SecurityConfig, ServerConfig, ThingConfig,

@@ -16,6 +16,8 @@ docs-offline = ["teta-wot-http/docs-offline"]
 ## Advertise the server with DNS-SD over mDNS (`_wot._tcp`, W3C WoT
 ## Discovery), when asked to.
 mdns = ["dep:mdns-sd"]
+## Run as a Windows service, and install one (`teta_wot_server::service`). Windows only.
+windows-service = ["dep:windows-service"]
 
 [dependencies]
 axum.workspace = true
@@ -35,6 +37,8 @@ tower.workspace = true
 tracing.workspace = true
 teta-wot-core.workspace = true
 teta-wot-http.workspace = true
+[target.'cfg(windows)'.dependencies]
+windows-service = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow.workspace = true
