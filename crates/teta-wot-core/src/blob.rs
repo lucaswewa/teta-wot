@@ -52,7 +52,7 @@ const MODEL_DESCRIPTION: &str = "A model for JSON-serialised `.Blob` objects.\n\
 
 /// Marks a deserialisation error as a Blob's, so that validation can
 /// report it where pydantic does (see `crate::property::from_client`).
-pub(crate) const ERROR_MARK: &str = "\u{1}blob\u{1}";
+pub(crate) use crate::validate::VALUE_ERROR_MARK as ERROR_MARK;
 
 // ---- Media types ------------------------------------------------------------
 

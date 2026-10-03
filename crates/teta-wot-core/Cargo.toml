@@ -10,11 +10,14 @@ publish.workspace = true
 default = []
 ## Helpers for testing Things without a server (`teta_wot_core::testing`).
 testing = []
+## `NdArray`: `ndarray` arrays as nested lists.
+ndarray = ["dep:ndarray"]
 
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
 indexmap.workspace = true
+ndarray = { workspace = true, optional = true }
 regex.workspace = true
 schemars.workspace = true
 serde.workspace = true
@@ -31,8 +34,9 @@ tempfile.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+proptest.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-teta-wot-core = { path = ".", features = ["testing"] }
+teta-wot-core = { path = ".", features = ["testing", "ndarray"] }
 teta-wot-td = { workspace = true, features = ["validation"] }
 
 [lints]

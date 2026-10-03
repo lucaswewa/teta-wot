@@ -18,8 +18,13 @@ docs-offline = ["teta-wot-server/docs-offline"]
 ## Advertise the server on the local network with DNS-SD over mDNS
 ## (`ThingServerBuilder::mdns`, W3C WoT Discovery).
 mdns = ["teta-wot-server/mdns"]
+## `NdArray`: `ndarray` arrays as properties and action inputs and outputs,
+## carried as nested lists (`teta_wot::ndarray` re-exports the crate).
+ndarray = ["teta-wot-core/ndarray", "dep:ndarray"]
 
 [dependencies]
+ndarray = { workspace = true, optional = true }
+
 teta-wot-core.workspace = true
 teta-wot-http.workspace = true
 teta-wot-macros.workspace = true
@@ -28,15 +33,18 @@ teta-wot-td.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+futures-util.workspace = true
 http-body-util.workspace = true
+proptest.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite = { workspace = true, features = ["connect"] }
 tracing.workspace = true
 trybuild.workspace = true
-teta-wot = { path = ".", features = ["testing", "validation"] }
+teta-wot = { path = ".", features = ["testing", "validation", "ndarray"] }
 uuid.workspace = true
 
 [lints]

@@ -33,13 +33,23 @@
 //! - the authoring macros: [`derive@Thing`] for a Thing's struct and its
 //!   field affordances, and [`thing_impl`] for its methods;
 //! - [`http`]: custom endpoints ([`http::Endpoint`]) and the `axum` they are
-//!   written with.
+//!   written with;
+//! - the W3C WoT Profile, as the `wot` wire profile
+//!   ([`server::WireProfile`]), discovery (`/.well-known/wot`, a TD
+//!   Directory, and DNS-SD with the `mdns` feature), and optional
+//!   credentials ([`server::Security`]);
+//! - with the `ndarray` feature, `NdArray`: arrays as nested lists, with the
+//!   `ndarray` crate re-exported as `teta_wot::ndarray`.
 //!
 //! `use teta_wot::prelude::*;` brings in what Thing code usually needs.
 
 pub use teta_wot_core::*;
 pub use teta_wot_macros::{Thing, interface, thing_impl};
 pub use teta_wot_td as td;
+
+/// The `ndarray` crate, which [`NdArray`] wraps (feature `ndarray`).
+#[cfg(feature = "ndarray")]
+pub use ndarray;
 
 /// The HTTP server and binding.
 pub mod server {
@@ -75,6 +85,8 @@ pub mod testing {
 
 /// What Thing code usually needs.
 pub mod prelude {
+    #[cfg(feature = "ndarray")]
+    pub use teta_wot_core::NdArray;
     pub use teta_wot_core::{
         Action, ActionCtx, ActionError, Blob, BoxFuture, CancelToken, Cancelled, Constraints,
         DataProperty, Dep, Device, DeviceError, DeviceOptions, Driver, Event, EventSpec,

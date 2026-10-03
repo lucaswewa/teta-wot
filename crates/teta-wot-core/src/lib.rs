@@ -35,6 +35,8 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod action;
+#[cfg(feature = "ndarray")]
+pub mod array;
 pub mod blob;
 pub mod broker;
 pub mod cancel;
@@ -66,6 +68,8 @@ pub mod validate;
 pub mod __private;
 
 pub use action::{Action, ActionError, ActionSpec, DEFAULT_RETENTION, NoInput};
+#[cfg(feature = "ndarray")]
+pub use array::NdArray;
 pub use blob::{Blob, MediaType};
 pub use broker::{Message, MessageBroker, MessageKind, Subscription};
 pub use cancel::{CancelToken, Cancelled};

@@ -19,6 +19,18 @@ use serde::Serialize;
 use serde_json::{Map, Number, Value};
 use teta_wot_td::{ArrayItems, DataSchema, DataType};
 
+/// Marks a deserialisation error as pydantic's `value_error`: a type's
+/// `Deserialize` found the value invalid (a Blob that isn't there, ragged
+/// nested lists). `from_client` reports it at the value, as pydantic does.
+pub(crate) const VALUE_ERROR_MARK: &str = "\u{1}value_error\u{1}";
+
+/// A deserialisation error that validation reports as pydantic's
+/// `value_error`, with `message` after "Value error, ".
+#[cfg_attr(not(feature = "ndarray"), allow(dead_code))]
+pub(crate) fn value_error_de<E: serde::de::Error>(message: impl fmt::Display) -> E {
+    E::custom(format!("{VALUE_ERROR_MARK}{message}"))
+}
+
 /// One step of an error's location: an object key or an array index.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -457,6 +469,16 @@ impl Run<'_> {
             let allowed: Vec<Value> = branches.iter().filter_map(|b| b.constant.clone()).collect();
             return self.literal(&allowed, value);
         }
+        // Nested lists of numbers pass whatever their shape, and deserialising checks that
+        // they are rectangular, with numpy's `value_error`.
+        if branches
+            .iter()
+            .any(|b| b.data_type == Some(DataType::Array))
+            && branches.iter().all(nested_numbers_schema)
+            && nested_numbers(value)
+        {
+            return Some(value.clone());
+        }
 
         let mut attempts = Vec::new();
         for strict in [true, false] {
@@ -770,6 +792,33 @@ impl Run<'_> {
             }
         }
         (self.issues.len() == before).then_some(Value::Object(out))
+    }
+}
+
+/// Whether a schema is a number, a union of numbers, or arrays of those
+/// nested to any depth (the innermost may allow anything).
+fn nested_numbers_schema(schema: &DataSchema) -> bool {
+    let plain = schema.enumeration.is_none() && schema.constant.is_none();
+    match (&schema.one_of, schema.data_type) {
+        (Some(branches), None) => plain && branches.iter().all(nested_numbers_schema),
+        (None, Some(DataType::Integer | DataType::Number)) => plain,
+        (None, Some(DataType::Array)) => match &schema.items {
+            Some(ArrayItems::Single(items)) => {
+                nested_numbers_schema(items)
+                    || (items.data_type.is_none() && items.one_of.is_none())
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Whether a value is a number or lists of numbers, of any shape.
+fn nested_numbers(value: &Value) -> bool {
+    match value {
+        Value::Number(_) => true,
+        Value::Array(items) => items.iter().all(nested_numbers),
+        _ => false,
     }
 }
 

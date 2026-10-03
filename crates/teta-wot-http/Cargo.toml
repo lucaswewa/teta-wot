@@ -29,6 +29,7 @@ teta-wot-core.workspace = true
 teta-wot-td.workspace = true
 
 [dev-dependencies]
+proptest.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 teta-wot-core = { workspace = true, features = ["testing"] }
 teta-wot-td = { workspace = true, features = ["validation"] }

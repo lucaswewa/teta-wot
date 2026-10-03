@@ -439,4 +439,145 @@ mod tests {
             "No action found with the name 'missing'."
         );
     }
+
+    /// Fuzzing the dialect's parser: whatever a client
+    /// sends, `handle` doesn't panic, answers only TetaThing's error
+    /// responses, and subscribes only to what exists and can be observed.
+    mod fuzz {
+        use std::sync::Arc;
+
+        use proptest::prelude::*;
+        use teta_wot_core::{
+            DataProperty, Event, EventSpec, FunctionalProperty, NoInput, Prop, Thing,
+            ThingDefinition,
+        };
+
+        use super::*;
+
+        struct Probe {
+            data: Prop<i64>,
+            happened: Event<String>,
+        }
+
+        impl Thing for Probe {
+            fn definition() -> ThingDefinition<Self> {
+                ThingDefinition::new("Probe")
+                    .property("data", DataProperty::new(|t: &Probe| &t.data))
+                    .property(
+                        "computed",
+                        FunctionalProperty::getter(|_: Arc<Probe>| async { Ok(1_i64) }),
+                    )
+                    .action(
+                        "act",
+                        teta_wot_core::Action::new(
+                            |_: Arc<Probe>, _: teta_wot_core::ActionCtx, _: NoInput| async {
+                                Ok::<_, teta_wot_core::ActionError>(())
+                            },
+                        ),
+                    )
+                    .event("happened", EventSpec::new(|t: &Probe| &t.happened))
+            }
+        }
+
+        fn runtime() -> Runtime {
+            Runtime::builder()
+                .thing(
+                    "probe",
+                    Probe {
+                        data: Prop::new(0),
+                        happened: Event::new(),
+                    },
+                )
+                .build()
+                .expect("a valid Thing")
+        }
+
+        const NAMES: [&str; 7] = ["data", "computed", "act", "happened", "ws", "", "nope"];
+
+        fn json() -> impl Strategy<Value = Value> {
+            let leaf = prop_oneof![
+                Just(Value::Null),
+                any::<bool>().prop_map(Value::Bool),
+                any::<i64>().prop_map(Value::from),
+                ".{0,8}".prop_map(Value::String),
+            ];
+            leaf.prop_recursive(3, 24, 4, |inner| {
+                prop_oneof![
+                    prop::collection::vec(inner.clone(), 0..4).prop_map(Value::Array),
+                    prop::collection::btree_map(
+                        prop_oneof![
+                            prop::sample::select(NAMES.to_vec()).prop_map(str::to_owned),
+                            ".{0,4}"
+                        ],
+                        inner,
+                        0..4,
+                    )
+                    .prop_map(|m| Value::Object(m.into_iter().collect())),
+                ]
+            })
+        }
+
+        /// Messages that look like the dialect's, with random parts.
+        fn message() -> impl Strategy<Value = String> {
+            let message_type = prop_oneof![
+                prop::sample::select(vec![
+                    "addPropertyObservation",
+                    "addActionObservation",
+                    "addEventSubscription",
+                    "setProperty",
+                    "requestAction",
+                    "",
+                ])
+                .prop_map(Value::from),
+                json(),
+            ];
+            let names = prop::collection::btree_map(
+                prop::sample::select(NAMES.to_vec()).prop_map(str::to_owned),
+                json(),
+                0..5,
+            )
+            .prop_map(|m| Value::Object(m.into_iter().collect()));
+            (
+                message_type,
+                prop_oneof![names, json()],
+                any::<bool>(),
+                json(),
+            )
+                .prop_map(|(message_type, data, with_type, extra)| {
+                    let mut message = serde_json::Map::new();
+                    if with_type {
+                        message.insert("messageType".into(), message_type);
+                    }
+                    message.insert("data".into(), data);
+                    message.insert("extra".into(), extra);
+                    Value::Object(message).to_string()
+                })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig {
+                failure_persistence: None,
+                ..ProptestConfig::default()
+            })]
+
+            #[test]
+            fn any_text(text in prop_oneof![".{0,64}", message(), json().prop_map(|v| v.to_string())]) {
+                let runtime = runtime();
+                let thing = runtime.thing("probe").cloned().expect("the probe");
+                let broker = runtime.broker();
+                let subscription = broker.subscription();
+                if let Some(reply) = handle(broker, &thing, &subscription, &text) {
+                    prop_assert_eq!(&reply["messageType"], "response");
+                    let status = reply["error"]["status"].as_str().unwrap_or_default();
+                    prop_assert!(status == "404" || status == "403", "{}", reply);
+                    let name = reply["name"].as_str().unwrap_or_default();
+                    let request: Value = serde_json::from_str(&text).expect("replies answer JSON");
+                    prop_assert!(request["data"].get(name).is_some(), "{} for {}", reply, text);
+                    if status == "403" {
+                        prop_assert_eq!(name, "computed");
+                    }
+                }
+            }
+        }
+    }
 }
