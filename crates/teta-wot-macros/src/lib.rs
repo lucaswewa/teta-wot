@@ -156,7 +156,8 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///   type the whole input. It may return a value, a
 ///   `Result<T, E>` (with `E: Into<ActionError>`), or nothing. Options:
 ///   `blocking`, `retention = seconds`, `global_lock = false`, `title`,
-///   `description`, `semantic_type`.
+///   `description`, `semantic_type`, `synchronous` (the caller waits for
+///   the output, in the `wot` wire profile).
 /// - `#[property(…)]`: a functional property's getter, taking only `&self`
 ///   and returning `T` or `Result<T, E>` (with `E: Into<PropertyError>`).
 ///   `#[setter(name)]` and `#[resetter(name)]` (optionally with `blocking`)

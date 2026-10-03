@@ -35,10 +35,17 @@ pub mod testing;
 
 pub mod cli;
 mod config;
+#[cfg(feature = "mdns")]
+mod mdns;
 mod registry;
 
-pub use config::{ConfigError, RESERVED_CONFIG_THING_NAMES, ServerConfig, ThingConfig};
+pub use config::{
+    ConfigError, RESERVED_CONFIG_THING_NAMES, SecurityConfig, ServerConfig, ThingConfig,
+};
+#[cfg(feature = "mdns")]
+pub use mdns::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 pub use registry::{ThingRegistry, normalise as normalise_class_name};
+pub use teta_wot_http::{Security, WireProfile};
 
 /// The default time to wait for requests and invocations to finish on shutdown.
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -74,6 +81,7 @@ pub struct ThingServerBuilder {
     runtime: RuntimeBuilder,
     http: HttpOptions,
     grace: Duration,
+    mdns: bool,
 }
 
 impl ThingServerBuilder {
@@ -179,14 +187,38 @@ impl ThingServerBuilder {
         self
     }
 
+    /// The wire profile: TetaThing's behaviour (the default), or the W3C WoT
+    /// HTTP Profiles'.
+    pub fn wire_profile(mut self, profile: WireProfile) -> Self {
+        self.http.profile = profile;
+        self
+    }
+
+    /// Requires credentials for every interaction, and describes them in the
+    /// TDs. TDs, discovery and the docs stay public.
+    pub fn security(mut self, security: Security) -> Self {
+        self.http.security = Some(security);
+        self
+    }
+
+    /// Advertises the server on the local network with DNS-SD over mDNS, as
+    /// a TD Directory. Needs the `mdns` feature; without it, a
+    /// warning is logged when the server starts.
+    pub fn mdns(mut self, enabled: bool) -> Self {
+        self.mdns = enabled;
+        self
+    }
+
     /// Builds the Things and the routes.
     pub fn build(self) -> Result<ThingServer, ServerBuildError> {
         let runtime = Arc::new(self.runtime.build()?);
+        let advertise = self.mdns.then(|| self.http.server_id.clone());
         let router = teta_wot_http::router(Arc::clone(&runtime), self.http)?;
         Ok(ThingServer {
             runtime,
             router,
             grace: self.grace,
+            advertise,
         })
     }
 }
@@ -196,6 +228,8 @@ pub struct ThingServer {
     runtime: Arc<Runtime>,
     router: Router,
     grace: Duration,
+    /// The DNS-SD instance name to advertise, if any.
+    advertise: Option<String>,
 }
 
 impl std::fmt::Debug for ThingServer {
@@ -231,6 +265,13 @@ impl ThingServer {
         if let Some(id) = &config.server_id {
             builder = builder.server_id(id.clone());
         }
+        if let Some(profile) = config.wire_profile {
+            builder = builder.wire_profile(profile);
+        }
+        if let Some(security) = &config.security {
+            builder = builder.security(security.resolve()?);
+        }
+        builder = builder.mdns(config.mdns);
         let mut errors = Vec::new();
         for (name, thing) in &config.things {
             if !registry.contains(&thing.cls) {
@@ -276,6 +317,7 @@ impl ThingServer {
             runtime: Runtime::builder(),
             http: HttpOptions::default(),
             grace: DEFAULT_SHUTDOWN_GRACE,
+            mdns: false,
         }
     }
 
@@ -317,6 +359,7 @@ impl ThingServer {
                 self.runtime.things().count()
             );
         }
+        let advertisement = advertise(self.advertise.as_deref(), &listener);
 
         let (stop, stopped) = tokio::sync::watch::channel(false);
         let serve = axum::serve(listener, self.router).with_graceful_shutdown(async move {
@@ -331,6 +374,7 @@ impl ThingServer {
         };
         if let Some(result) = result {
             // The server stopped by itself: an I/O error.
+            withdraw(advertisement).await;
             self.runtime.shutdown(self.grace).await;
             return match result {
                 Ok(served) => served.map_err(ServeError::Io),
@@ -339,6 +383,7 @@ impl ThingServer {
         }
 
         tracing::info!("shutting down");
+        withdraw(advertisement).await;
         let _ = stop.send(true);
         // Ends WebSocket and SSE streams, which would otherwise keep their
         // connections open for the whole grace period.
@@ -397,4 +442,53 @@ pub async fn shutdown_signal() {
         let _ = tokio::signal::ctrl_c().await;
         tracing::info!("received Ctrl-C");
     }
+}
+
+/// What `advertise` returns: the advertisement to withdraw at shutdown.
+#[cfg(feature = "mdns")]
+type Advertised = Option<mdns::Advertisement>;
+#[cfg(not(feature = "mdns"))]
+type Advertised = ();
+
+/// Starts advertising the server with DNS-SD, if asked to.
+/// Failing to advertise is logged; the server serves anyway.
+fn advertise(instance: Option<&str>, listener: &TcpListener) -> Advertised {
+    let Some(instance) = instance else {
+        return Default::default();
+    };
+    #[cfg(feature = "mdns")]
+    {
+        let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
+        match mdns::Advertisement::start(instance, port) {
+            Ok(advertisement) => {
+                tracing::info!(
+                    "advertising `{instance}` as {} on port {port}",
+                    mdns::DIRECTORY_SERVICE_TYPE
+                );
+                Some(advertisement)
+            }
+            Err(error) => {
+                tracing::warn!("the server can't be advertised with mDNS: {error}");
+                None
+            }
+        }
+    }
+    #[cfg(not(feature = "mdns"))]
+    {
+        let _ = listener;
+        tracing::warn!(
+            "`{instance}` can't be advertised with mDNS: the server was built without the `mdns` feature"
+        );
+    }
+}
+
+/// Withdraws the advertisement, if there is one.
+#[allow(clippy::unused_async)]
+async fn withdraw(advertised: Advertised) {
+    #[cfg(feature = "mdns")]
+    if let Some(advertisement) = advertised {
+        let _ = tokio::task::spawn_blocking(move || advertisement.stop()).await;
+    }
+    #[cfg(not(feature = "mdns"))]
+    let () = advertised;
 }

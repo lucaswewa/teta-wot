@@ -260,6 +260,12 @@ impl<T: PropValue> Prop<T> {
         self.save()
     }
 
+    /// Validates a client's value without setting it.
+    fn check_from_client(&self, value: &Value) -> Result<(), PropertyError> {
+        from_client::<T>(self.validator()?, value)?;
+        Ok(())
+    }
+
     fn bind(&self, binding: Binding) {
         let _ = self.binding.set(binding);
     }
@@ -377,6 +383,8 @@ macro_rules! meta_setters {
 pub(crate) trait PropertyHandler: Send + Sync {
     fn read(&self) -> BoxFuture<'_, Result<Value, PropertyError>>;
     fn write(&self, value: Value) -> BoxFuture<'_, Result<(), PropertyError>>;
+    /// Validates a client's value (as `write` would) without writing it.
+    fn check(&self, value: &Value) -> Result<(), PropertyError>;
     fn resettable(&self) -> bool;
     /// Only called when `resettable()` is true.
     fn reset(&self) -> BoxFuture<'_, Result<(), PropertyError>>;
@@ -457,6 +465,10 @@ impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for DataHandler<T, 
     fn write(&self, value: Value) -> BoxFuture<'_, Result<(), PropertyError>> {
         let result = self.prop().set_from_client(&value);
         Box::pin(async move { result })
+    }
+
+    fn check(&self, value: &Value) -> Result<(), PropertyError> {
+        self.prop().check_from_client(value)
     }
 
     fn resettable(&self) -> bool {
@@ -766,6 +778,11 @@ impl<T: Send + Sync + 'static, V: PropValue> PropertyHandler for FunctionalHandl
         })
     }
 
+    fn check(&self, value: &Value) -> Result<(), PropertyError> {
+        from_client::<V>(&self.validator, value)?;
+        Ok(())
+    }
+
     fn resettable(&self) -> bool {
         self.resetter.is_some() || (self.setter.is_some() && self.default.is_some())
     }
@@ -947,6 +964,19 @@ impl PropertyEntry {
         }
         let _guard = self.lock().await?;
         self.handler.write(value).await
+    }
+
+    /// Checks a value as [`write`](Self::write) would, without taking the
+    /// global lock or writing: for writing several properties at once only
+    /// if every value is valid.
+    pub fn validate(&self, value: &Value) -> Result<(), PropertyError> {
+        if self.read_only || !self.handler.has_setter() {
+            return Err(PropertyError::ReadOnly(self.name.clone()));
+        }
+        if value.is_null() {
+            return Err(ValidationError::missing(vec![LocItem::from("body")], Value::Null).into());
+        }
+        self.handler.check(value)
     }
 
     /// Resets the property for a client: refuses read-only properties, takes

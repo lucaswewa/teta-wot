@@ -9,7 +9,8 @@ pub const RESERVED_AFFORDANCE_NAMES: &[&str] = &["ws"];
 
 /// Why `name` can't be the name of an affordance, if it can't: it must be
 /// usable as one URL path segment (letters, digits, `_` and `-`) and not be
-/// reserved.
+/// reserved. `properties`, `actions` and `events` are the Thing's
+/// top-level resources, such as `readallproperties`
 pub fn affordance_name_problem(name: &str) -> Option<String> {
     if name.is_empty() {
         return Some("an affordance name can't be empty".to_owned());

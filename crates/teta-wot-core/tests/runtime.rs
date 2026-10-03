@@ -672,6 +672,11 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
             observation: false,
             websocket: None,
             links: false,
+            top_level: false,
+            invocations: None,
+            synchronous_actions: false,
+            profiles: Vec::new(),
+            security: None,
         }
     );
     let td = serde_json::to_value(
@@ -683,6 +688,7 @@ fn thing_description_sorts_affordances_and_contains_metadata_schemas_and_forms()
                 observation: false,
                 websocket: None,
                 links: false,
+                ..TdOptions::for_name("actions")
             })
             .unwrap(),
     )

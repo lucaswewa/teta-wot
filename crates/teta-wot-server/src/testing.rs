@@ -51,6 +51,8 @@ pub struct TestClient {
     router: Router,
     runtime: std::sync::Arc<Runtime>,
     host: String,
+    /// Headers sent with every request, such as credentials.
+    headers: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for TestClient {
@@ -69,6 +71,7 @@ impl TestClient {
             router: server.router(),
             runtime: std::sync::Arc::clone(server.runtime()),
             host: "testserver".to_owned(),
+            headers: Vec::new(),
         })
     }
 
@@ -76,6 +79,20 @@ impl TestClient {
     pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = host.into();
         self
+    }
+
+    /// Sends a header with every request, such as `Authorization`.
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    fn builder(&self) -> http::request::Builder {
+        let mut builder = Request::builder().header("host", &self.host);
+        for (name, value) in &self.headers {
+            builder = builder.header(name, value);
+        }
+        builder
     }
 
     /// The runtime behind the server.
@@ -91,10 +108,7 @@ impl TestClient {
         headers: &[(&str, &str)],
         body: Option<Vec<u8>>,
     ) -> TestResponse {
-        let mut builder = Request::builder()
-            .method(method)
-            .uri(path)
-            .header("host", &self.host);
+        let mut builder = self.builder().method(method).uri(path);
         for (name, value) in headers {
             builder = builder.header(*name, *value);
         }
@@ -159,9 +173,9 @@ impl TestClient {
     /// `GET path`, without reading the body: for long responses such as
     /// MJPEG streams, read with `http_body_util::BodyExt::frame`.
     pub async fn stream(&self, path: &str) -> axum::response::Response {
-        let request = Request::builder()
+        let request = self
+            .builder()
             .uri(path)
-            .header("host", &self.host)
             .body(Body::empty())
             .expect("a valid test request");
         self.router
@@ -174,9 +188,9 @@ impl TestClient {
     /// Opens a server-sent events stream: `GET path` with
     /// `Accept: text/event-stream`, in-process.
     pub async fn events(&self, path: &str) -> TestEventStream {
-        let request = Request::builder()
+        let request = self
+            .builder()
             .uri(path)
-            .header("host", &self.host)
             .header("accept", "text/event-stream")
             .body(Body::empty())
             .expect("a valid test request");
@@ -209,7 +223,18 @@ impl TestClient {
             .await
             .expect("the loopback server accepts");
         let url = format!("ws://{}{path}", self.host);
-        let (socket, _) = tokio_tungstenite::client_async(url, stream)
+        let mut request =
+            tokio_tungstenite::tungstenite::client::IntoClientRequest::into_client_request(url)
+                .expect("a valid WebSocket URL");
+        for (name, value) in &self.headers {
+            if let (Ok(name), Ok(value)) = (
+                http::HeaderName::from_bytes(name.as_bytes()),
+                http::HeaderValue::from_str(value),
+            ) {
+                request.headers_mut().insert(name, value);
+            }
+        }
+        let (socket, _) = tokio_tungstenite::client_async(request, stream)
             .await
             .expect("the WebSocket handshake succeeds");
         TestWebSocket { socket, server }
@@ -253,6 +278,11 @@ impl TestEventStream {
     /// `None` when the stream ends. Comments (keep-alives) are skipped.
     /// Panics after [`RECEIVE_TIMEOUT`].
     pub async fn next(&mut self) -> Option<Value> {
+        self.next_message().await.map(|message| message.data)
+    }
+
+    /// The next event, with its name and ID: as [`next`](Self::next).
+    pub async fn next_message(&mut self) -> Option<TestSseMessage> {
         tokio::time::timeout(RECEIVE_TIMEOUT, self.next_event())
             .await
             .expect("no server-sent event within the timeout")
@@ -264,9 +294,10 @@ impl TestEventStream {
             .await
             .ok()
             .flatten()
+            .map(|message| message.data)
     }
 
-    async fn next_event(&mut self) -> Option<Value> {
+    async fn next_event(&mut self) -> Option<TestSseMessage> {
         loop {
             if let Some(end) = self.buffer.find("\n\n") {
                 let event: String = self.buffer.drain(..end + 2).collect();
@@ -278,8 +309,18 @@ impl TestEventStream {
                 if data.is_empty() {
                     continue;
                 }
+                let field = |name: &str| {
+                    event
+                        .lines()
+                        .find_map(|line| line.strip_prefix(name))
+                        .map(|value| value.strip_prefix(' ').unwrap_or(value).to_owned())
+                };
                 let data = data.join("\n");
-                return Some(serde_json::from_str(&data).unwrap_or(Value::String(data)));
+                return Some(TestSseMessage {
+                    event: field("event:"),
+                    id: field("id:"),
+                    data: serde_json::from_str(&data).unwrap_or(Value::String(data)),
+                });
             }
             let frame = self.body.frame().await?.ok()?;
             if let Ok(bytes) = frame.into_data() {
@@ -288,6 +329,17 @@ impl TestEventStream {
             }
         }
     }
+}
+
+/// A server-sent event received by [`TestEventStream::next_message`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestSseMessage {
+    /// The event's name (`event:`), if it has one.
+    pub event: Option<String>,
+    /// The event's ID (`id:`), if it has one.
+    pub id: Option<String>,
+    /// The event's data, as JSON (a string if it isn't JSON).
+    pub data: Value,
 }
 
 /// A WebSocket opened by [`TestClient::websocket`].

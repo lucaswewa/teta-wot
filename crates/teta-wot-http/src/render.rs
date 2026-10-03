@@ -2,11 +2,12 @@
 
 use axum::body::Body;
 use axum::response::Response;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use http::header::{CONTENT_TYPE, LOCATION};
 use http::request::Parts;
 use http::{HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use teta_wot_core::invocation::InvocationStatus;
 use teta_wot_core::{InvocationRecord, ProblemDetails, ValidationIssue};
 
 /// The URLs of the request being answered: absolute URLs in responses are
@@ -140,6 +141,57 @@ pub(crate) fn invocation(record: &InvocationRecord, urls: &Urls, full: bool) -> 
     Value::Object(out)
 }
 
+/// A time in RFC 3339, in UTC with microseconds, as the WoT Profile wants
+/// (the `wot` profile).
+pub(crate) fn rfc3339(time: &DateTime<Utc>) -> String {
+    time.to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
+/// An invocation as the WoT Profile's `ActionStatus` (the `wot` profile): `status`
+/// (`failed` for `error` and `cancelled`), the `output` of a completed action that has one,
+/// the `error` of a failed one as problem details, `href`, `timeRequested` and `timeEnded`.
+pub(crate) fn action_status(record: &InvocationRecord, urls: &Urls, has_output: bool) -> Value {
+    let mut out = Map::new();
+    let status = match record.status {
+        InvocationStatus::Pending => "pending",
+        InvocationStatus::Running => "running",
+        InvocationStatus::Completed => "completed",
+        InvocationStatus::Error | InvocationStatus::Cancelled => "failed",
+    };
+    out.insert("status".into(), json!(status));
+    if record.status == InvocationStatus::Completed && has_output {
+        let mut output = record.output.clone().unwrap_or(Value::Null);
+        crate::output::resolve_blobs(&mut output, urls);
+        out.insert("output".into(), output);
+    }
+    if status == "failed" {
+        let problem = record.error.clone().unwrap_or_else(|| {
+            ProblemDetails::teta_wot_things(
+                "InvocationCancelledError",
+                "The action was cancelled.",
+                500,
+            )
+        });
+        out.insert("error".into(), crate::problem::wot_problem(&problem).1);
+    }
+    out.insert("href".into(), json!(urls.invocation_href(&record.id)));
+    out.insert(
+        "timeRequested".into(),
+        json!(rfc3339(&record.time_requested)),
+    );
+    if let Some(ended) = &record.time_completed {
+        out.insert("timeEnded".into(), json!(rfc3339(ended)));
+    }
+    Value::Object(out)
+}
+
+/// A 204 with no body.
+pub(crate) fn no_content() -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::NO_CONTENT;
+    response
+}
+
 /// A JSON response.
 pub(crate) fn json(status: StatusCode, value: &Value) -> Response {
     let body = serde_json::to_vec(value).unwrap_or_else(|_| b"null".to_vec());
@@ -173,9 +225,10 @@ pub(crate) fn problem(problem: &ProblemDetails) -> Response {
     json(status, &serde_json::to_value(problem).unwrap_or_default())
 }
 
-/// A 201 for a new invocation, with its URL in `Location`.
-pub(crate) fn created(record: &InvocationRecord, urls: &Urls) -> Response {
-    let mut response = json(StatusCode::CREATED, &invocation(record, urls, true));
+/// A 201 for a new invocation, with its URL in `Location`: the
+/// invocation's JSON, or its `ActionStatus` in the `wot` profile.
+pub(crate) fn created(record: &InvocationRecord, body: &Value, urls: &Urls) -> Response {
+    let mut response = json(StatusCode::CREATED, body);
     if let Ok(location) = HeaderValue::from_str(&urls.invocation_href(&record.id)) {
         response.headers_mut().insert(LOCATION, location);
     }

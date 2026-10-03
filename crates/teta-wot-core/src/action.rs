@@ -252,6 +252,7 @@ pub(crate) struct ActionMeta {
     pub retention: Duration,
     pub global_lock: bool,
     pub semantic_types: Vec<String>,
+    pub synchronous: bool,
 }
 
 impl Default for ActionMeta {
@@ -262,6 +263,7 @@ impl Default for ActionMeta {
             retention: DEFAULT_RETENTION,
             global_lock: true,
             semantic_types: Vec::new(),
+            synchronous: false,
         }
     }
 }
@@ -336,6 +338,16 @@ where
     /// Adds a semantic annotation (`@type`).
     pub fn semantic_type(mut self, semantic_type: impl Into<String>) -> Self {
         self.meta.semantic_types.push(semantic_type.into());
+        self
+    }
+
+    /// Marks the action as synchronous: a short action whose caller waits
+    /// for its output. In the `wot` wire profile, invoking it answers with
+    /// the output (200, or 204 without one) once it has finished, and its
+    /// TD says `"synchronous": true`. The `tetathing` profile always
+    /// answers 201 with the invocation.
+    pub fn synchronous(mut self, synchronous: bool) -> Self {
+        self.meta.synchronous = synchronous;
         self
     }
 }

@@ -44,15 +44,18 @@ pub use teta_wot_td as td;
 /// The HTTP server and binding.
 pub mod server {
     pub use teta_wot_http::{
-        DOCS_OFFLINE, FallbackPage, HttpOptions, REDOC_VERSION, RESERVED_THING_NAMES, RouteError,
-        SWAGGER_UI_VERSION, default_server_id, fallback_router, openapi, operation_id, td_id,
-        thing_description,
+        DOCS_OFFLINE, FallbackPage, HTTP_BASIC_PROFILE, HTTP_SSE_PROFILE, HttpOptions,
+        PROBLEM_TYPES_URL, REDOC_VERSION, RESERVED_THING_NAMES, RouteError, SWAGGER_UI_VERSION,
+        Security, WireProfile, default_server_id, fallback_router, openapi, operation_id,
+        problem_type, td_id, thing_description,
     };
     pub use teta_wot_server::{
-        ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, ServeError,
-        ServerBuildError, ServerConfig, ThingConfig, ThingRegistry, ThingServer,
+        ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, SecurityConfig,
+        ServeError, ServerBuildError, ServerConfig, ThingConfig, ThingRegistry, ThingServer,
         ThingServerBuilder, cli, normalise_class_name, shutdown_signal,
     };
+    #[cfg(feature = "mdns")]
+    pub use teta_wot_server::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 }
 
 /// Custom HTTP endpoints: [`Endpoint`](http::Endpoint), and the

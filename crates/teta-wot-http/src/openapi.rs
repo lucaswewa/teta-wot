@@ -9,8 +9,8 @@ use serde_json::{Map, Value, json};
 use teta_wot_core::{ActionEntry, PropertyEntry, Runtime, ThingHandle};
 use teta_wot_td::DataSchema;
 
-use crate::HttpOptions;
 use crate::routes::RESERVED_THING_NAMES;
+use crate::{HttpOptions, Security, WireProfile};
 
 /// The content type of a successful MJPEG response.
 const MJPEG: &str = "multipart/x-mixed-replace; boundary=frame";
@@ -47,25 +47,61 @@ pub fn operation_id(name: &str, path: &str, method: &str) -> String {
 /// `/openapi.json`. It doesn't depend on the request, so it can be written
 /// to a file without a server (the `openapi-export` example).
 pub fn openapi(runtime: &Runtime, options: &HttpOptions) -> Value {
-    let mut document = Document::new(&options.api_prefix);
+    let mut document = Document::new(&options.api_prefix, options.profile);
     document.framework_routes();
+    document.discovery_routes();
     for thing in runtime.things() {
         if !RESERVED_THING_NAMES.contains(&thing.name()) {
             document.thing(thing);
         }
     }
     let mut schemas = shared_schemas();
+    let wot_schemas = wot_schemas();
+    // Discovery's errors are problems in both profiles.
+    schemas.insert("Problem".into(), wot_schemas["Problem"].clone());
+    if document.wot() {
+        schemas.extend(wot_schemas);
+    }
     schemas.extend(document.schemas);
+    let mut components = json!({"schemas": schemas});
+    if let Some(security) = &options.security {
+        let (name, scheme) = match security {
+            Security::Basic { .. } => ("basic", "basic"),
+            Security::Bearer { .. } => ("bearer", "bearer"),
+        };
+        components["securitySchemes"] = json!({name: {"type": "http", "scheme": scheme}});
+        for item in document.paths.values_mut().filter_map(Value::as_object_mut) {
+            for operation in item.values_mut() {
+                let public = operation["operationId"]
+                    .as_str()
+                    .is_some_and(|id| PUBLIC_OPERATIONS.iter().any(|p| id.starts_with(p)));
+                if !public {
+                    operation["security"] = json!([{ name: [] }]);
+                    operation["responses"]["401"] = json!({"description": "Not authenticated"});
+                }
+            }
+        }
+    }
     json!({
         "openapi": "3.1.0",
         "info": {"title": options.api_title, "version": options.api_version},
         "paths": document.paths,
-        "components": {"schemas": schemas},
+        "components": components,
     })
 }
 
+/// The operations that need no credentials: descriptions.
+const PUBLIC_OPERATIONS: [&str; 5] = [
+    "thing_descriptions",
+    "thing_paths",
+    "things_",
+    "well_known_wot",
+    "directory_",
+];
+
 struct Document {
     prefix: String,
+    profile: WireProfile,
     paths: Map<String, Value>,
     schemas: Map<String, Value>,
     ids: HashSet<String>,
@@ -85,6 +121,19 @@ fn validation_error() -> Value {
         "description": "Validation Error",
         "content": json_content(reference("HTTPValidationError")),
     })
+}
+
+/// An error answer in the `wot` profile: problem details.
+fn problem(description: &str) -> Value {
+    json!({
+        "description": description,
+        "content": {"application/problem+json": {"schema": reference("Problem")}},
+    })
+}
+
+/// A success without a body (`wot` profile).
+fn no_content(description: &str) -> Value {
+    json!({ "description": description })
 }
 
 /// A `{uuid}` path parameter.
@@ -115,17 +164,51 @@ fn default_summary(name: &str) -> String {
 }
 
 impl Document {
-    fn new(prefix: &str) -> Self {
+    fn new(prefix: &str, profile: WireProfile) -> Self {
         Self {
             prefix: prefix.to_owned(),
+            profile,
             paths: Map::new(),
             schemas: Map::new(),
             ids: HashSet::new(),
         }
     }
 
-    /// Adds an operation. A duplicate
-    /// `operationId` gets `_2`, `_3`, … so
+    fn wot(&self) -> bool {
+        self.profile == WireProfile::Wot
+    }
+
+    /// How server-sent events are named, in the profile.
+    fn named_events(&self) -> &'static str {
+        if self.wot() {
+            ", in an event named after the affordance, with its time as its `id`"
+        } else {
+            ""
+        }
+    }
+
+    /// The answer to invalid input: FastAPI's 422, or the `wot` profile's
+    /// 400.
+    fn invalid(&self, responses: &mut Value) {
+        if self.wot() {
+            responses["400"] = problem("Validation Error");
+        } else {
+            responses["422"] = validation_error();
+        }
+    }
+
+    /// The answer to an unknown or malformed invocation ID.
+    fn unknown_id(&self, responses: &mut Value, description: &str) {
+        if self.wot() {
+            responses["404"] = problem(description);
+        } else {
+            responses["404"] = json!({ "description": description });
+            responses["422"] = validation_error();
+        }
+    }
+
+    /// Adds an operation, named as FastAPI names it. A duplicate
+    /// `operationId` (possible with FastAPI's rule) gets `_2`, `_3`, … so
     /// that the document stays valid.
     fn operation(
         &mut self,
@@ -175,48 +258,77 @@ impl Document {
     fn framework_routes(&mut self) {
         let p = self.prefix.clone();
         let invocations = format!("{p}/action_invocations");
-        let summaries = json!({"type": "array", "items": reference("InvocationSummary")});
+        let (summary, full) = if self.wot() {
+            ("ActionStatus", "ActionStatus")
+        } else {
+            ("InvocationSummary", "Invocation")
+        };
+        let summaries = json!({"type": "array", "items": reference(summary)});
         self.operation(&invocations, "GET", "list_all_invocations", op(json!({
             "summary": "List All Invocations",
             "description": "Every invocation the server is keeping, of every action.",
             "responses": {"200": {"description": "Successful Response", "content": json_content(summaries)}},
         })));
         let one = format!("{invocations}/{{id}}");
-        self.operation(&one, "GET", "action_invocation", op(json!({
-            "summary": "Action Invocation",
-            "description": "One invocation: its status, input, output, log and error.",
-            "parameters": uuid_parameter("id"),
-            "responses": {
-                "200": {"description": "Successful Response", "content": json_content(reference("Invocation"))},
-                "404": {"description": "Invocation ID not found"},
-                "422": validation_error(),
-            },
-        })));
+        let mut responses = json!({
+            "200": {"description": "Successful Response", "content": json_content(reference(full))},
+        });
+        self.unknown_id(&mut responses, "Invocation ID not found");
+        self.operation(
+            &one,
+            "GET",
+            "action_invocation",
+            op(json!({
+                "summary": "Action Invocation",
+                "description": if self.wot() {
+                    "One invocation's `ActionStatus` (`queryaction`)."
+                } else {
+                    "One invocation: its status, input, output, log and error."
+                },
+                "parameters": uuid_parameter("id"),
+                "responses": responses,
+            })),
+        );
+        let mut responses = if self.wot() {
+            json!({
+                "204": no_content("Cancel request sent"),
+                "409": problem("Invocation may not be cancelled"),
+            })
+        } else {
+            json!({
+                "200": {"description": "Cancel request sent", "content": json_content(json!({}))},
+                "503": {"description": "Invocation may not be cancelled"},
+            })
+        };
+        self.unknown_id(&mut responses, "Invocation ID not found");
         self.operation(&one, "DELETE", "delete_invocation", op(json!({
             "summary": "Delete Invocation",
-            "description": "Cancel an invocation. The action stops at its next cancellation check.",
+            "description": "Cancel an invocation (`cancelaction`). The action stops at its next cancellation check.",
             "parameters": uuid_parameter("id"),
-            "responses": {
-                "200": {"description": "Cancel request sent", "content": json_content(json!({}))},
-                "404": {"description": "Invocation ID not found"},
-                "503": {"description": "Invocation may not be cancelled"},
-                "422": validation_error(),
-            },
+            "responses": responses,
         })));
+        let mut responses = json!({
+            "200": {
+                "description": "Action invocation output",
+                "content": {"application/json": {"schema": {}}, "*/*": {}},
+            },
+        });
+        if self.wot() {
+            responses["404"] = problem("Invocation ID not found, or no output is available");
+        } else {
+            responses["503"] = json!({"description": "No result is available for this invocation"});
+            self.unknown_id(&mut responses, "Invocation ID not found");
+        }
         self.operation(&format!("{one}/output"), "GET", "action_invocation_output", op(json!({
             "summary": "Action Invocation Output",
             "description": "The output of a completed invocation. When the output is a Blob, this is its data.",
             "parameters": uuid_parameter("id"),
-            "responses": {
-                "200": {
-                    "description": "Action invocation output",
-                    "content": {"application/json": {"schema": {}}, "*/*": {}},
-                },
-                "404": {"description": "Invocation ID not found"},
-                "503": {"description": "No result is available for this invocation"},
-                "422": validation_error(),
-            },
+            "responses": responses,
         })));
+        let mut responses = json!({
+            "200": {"description": "Successful Response", "content": {"*/*": {}}},
+        });
+        self.unknown_id(&mut responses, "Blob not found");
         self.operation(
             &format!("{p}/blob/{{blob_id}}"),
             "GET",
@@ -225,11 +337,7 @@ impl Document {
                 "summary": "Download Blob",
                 "description": "A Blob's data, while an invocation or the Thing still holds it.",
                 "parameters": uuid_parameter("blob_id"),
-                "responses": {
-                    "200": {"description": "Successful Response", "content": {"*/*": {}}},
-                    "404": {"description": "Blob not found"},
-                    "422": validation_error(),
-                },
+                "responses": responses,
             })),
         );
         self.operation(&format!("{p}/thing_descriptions/"), "GET", "thing_descriptions", op(json!({
@@ -250,7 +358,109 @@ impl Document {
         })));
     }
 
-    /// A Thing's routes: its affordances, streams and endpoints by name, then its TD.
+    /// Discovery: the well-known URL and the directory.
+    fn discovery_routes(&mut self) {
+        let problems = |description: &str| json!({"content": {"application/problem+json": {"schema": reference("Problem")}}, "description": description});
+        self.operation("/.well-known/wot", "GET", "well_known_wot", op(json!({
+            "summary": "Thing Description Directory",
+            "description": "The TD of this server's Thing Description Directory (W3C WoT Discovery).",
+            "responses": {"200": {
+                "description": "Successful Response",
+                "content": {"application/td+json": {"schema": reference("ThingDescription")}},
+            }},
+        })));
+        let things = format!("{}/directory/things", self.prefix);
+        let number = |name: &str, description: &str| json!({"name": name, "in": "query", "required": false, "description": description, "schema": {"type": "integer", "minimum": 0}});
+        self.operation(&things, "GET", "directory_things", op(json!({
+            "summary": "Thing Descriptions",
+            "description": "Every Thing's TD, sorted by `id`. With `limit`, a page, with `next` and `canonical` links.",
+            "parameters": [
+                number("offset", "How many TDs to skip"),
+                number("limit", "How many TDs in a page (at least 1)"),
+                {"name": "format", "in": "query", "required": false, "schema": {"type": "string", "enum": ["array", "collection"], "default": "array"}},
+            ],
+            "responses": {
+                "200": {
+                    "description": "Successful Response",
+                    "content": {"application/ld+json": {"schema": {"oneOf": [
+                        {"type": "array", "items": reference("ThingDescription")},
+                        {"type": "object", "description": "A ThingCollection"},
+                    ]}}},
+                },
+                "400": problems("Invalid query arguments"),
+            },
+        })));
+        self.operation(&format!("{things}/{{id}}"), "GET", "directory_thing", op(json!({
+            "summary": "Thing Description",
+            "description": "One TD, by its `id`.",
+            "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "format": "iri-reference"}}],
+            "responses": {
+                "200": {
+                    "description": "Successful Response",
+                    "content": {"application/td+json": {"schema": reference("ThingDescription")}},
+                },
+                "404": problems("No TD has this ID"),
+            },
+        })));
+    }
+
+    /// A Thing's top-level resources, where its TD has their forms.
+    fn top_level(&mut self, thing: &ThingHandle, base: &str) {
+        let name = thing.name();
+        let path = format!("{base}properties");
+        if thing.properties().next().is_some() {
+            let mut content = json_content(
+                json!({"type": "object", "description": "Each property's value, by name."}),
+            );
+            content["text/event-stream"] = json!({"schema": {
+                "type": "string",
+                "description": "Server-sent events: each observable property's new values, as events named after it. Ask for them with `Accept: text/event-stream`.",
+            }});
+            self.operation(&path, "GET", "read_all_properties", op(json!({
+                "summary": "Read All Properties",
+                "description": format!("Every property of `{name}` (`readallproperties`), or their changes (`observeallproperties`)."),
+                "responses": {"200": {"description": "Successful Response", "content": content}},
+            })));
+        }
+        if thing.properties().any(|p| !p.is_read_only()) {
+            let mut responses = json!({"204": no_content("Properties written")});
+            self.invalid(&mut responses);
+            self.operation(&path, "PUT", "write_multiple_properties", op(json!({
+                "summary": "Write Multiple Properties",
+                "description": format!("Writes several properties of `{name}` (`writemultipleproperties`): nothing is written unless every value is valid."),
+                "requestBody": {"content": json_content(json!({"type": "object"})), "required": true},
+                "responses": responses,
+            })));
+        }
+        if thing.actions().next().is_some() {
+            let item = if self.wot() {
+                "ActionStatus"
+            } else {
+                "InvocationSummary"
+            };
+            self.operation(&format!("{base}actions"), "GET", "query_all_actions", op(json!({
+                "summary": "Query All Actions",
+                "description": format!("The invocations of each action of `{name}`, newest first (`queryallactions`)."),
+                "responses": {"200": {
+                    "description": "Successful Response",
+                    "content": json_content(json!({"type": "object", "additionalProperties": {"type": "array", "items": reference(item)}})),
+                }},
+            })));
+        }
+        if thing.events().next().is_some() {
+            self.operation(&format!("{base}events"), "GET", "subscribe_all_events", op(json!({
+                "summary": "Subscribe All Events",
+                "description": format!("Server-sent events: every event of `{name}`, named after it (`subscribeallevents`)."),
+                "responses": {"200": {
+                    "description": "Server-sent events",
+                    "content": {"text/event-stream": {"schema": {"type": "string"}}},
+                }},
+            })));
+        }
+    }
+
+    /// A Thing's routes: its affordances, streams and endpoints by name, its
+    /// top-level resources, then its TD.
     fn thing(&mut self, thing: &ThingHandle) {
         let name = thing.name().to_owned();
         let base = format!("{}/{name}/", self.prefix);
@@ -293,6 +503,7 @@ impl Document {
                 Item::Endpoint(endpoint) => self.endpoint(&base, endpoint),
             }
         }
+        self.top_level(thing, &base);
         self.operation(&base, "GET", &format!("things.{name}"), op(json!({
             "summary": "Thing Description",
             "description": format!("The W3C Thing Description of `{name}`: its properties, actions and events, and how to use them."),
@@ -318,7 +529,7 @@ impl Document {
                 "text/event-stream".into(),
                 json!({"schema": {
                     "type": "string",
-                    "description": "Server-sent events: each new value as JSON in a `data:` line. Ask for them with `Accept: text/event-stream`.",
+                    "description": format!("Server-sent events: each new value as JSON in a `data:` line{}. Ask for them with `Accept: text/event-stream`.", self.named_events()),
                 }}),
             );
         }
@@ -328,21 +539,34 @@ impl Document {
             "responses": {"200": {"description": format!("Value of {name}"), "content": content}},
         })));
         if !property.is_read_only() {
-            self.operation(&path, "PUT", "set_property", op(json!({
-                "summary": format!("Set {title}"),
-                "description": description,
-                "requestBody": {"content": json_content(value), "required": true},
-                "responses": {
-                    "201": {"description": "Property set successfully", "content": json_content(json!({}))},
-                    "422": validation_error(),
-                },
-            })));
+            let mut responses = if self.wot() {
+                json!({"204": no_content("Property set successfully")})
+            } else {
+                json!({"201": {"description": "Property set successfully", "content": json_content(json!({}))}})
+            };
+            self.invalid(&mut responses);
+            self.operation(
+                &path,
+                "PUT",
+                "set_property",
+                op(json!({
+                    "summary": format!("Set {title}"),
+                    "description": description,
+                    "requestBody": {"content": json_content(value), "required": true},
+                    "responses": responses,
+                })),
+            );
         }
         if property.is_resettable() {
+            let responses = if self.wot() {
+                json!({"204": no_content("Successful Response")})
+            } else {
+                json!({"200": {"description": "Successful Response", "content": json_content(json!({}))}})
+            };
             self.operation(&format!("{path}/reset"), "POST", "reset", op(json!({
                 "summary": format!("Reset {title}."),
                 "description": format!("## Reset {title}\n\nResets the property to its default value, which the Thing Description gives."),
-                "responses": {"200": {"description": "Successful Response", "content": json_content(json!({}))}},
+                "responses": responses,
             })));
         }
     }
@@ -358,31 +582,67 @@ impl Document {
             format!("{thing}_{name}_output"),
             json_schema(action.output_schema()),
         );
-        let invocation = self.schema(
-            format!("{thing}_{name}_invocation"),
-            invocation_schema(&input, &output),
-        );
+        let invocation = if self.wot() {
+            self.schema(
+                format!("{thing}_{name}_status"),
+                action_status_schema(&output),
+            )
+        } else {
+            self.schema(
+                format!("{thing}_{name}_invocation"),
+                invocation_schema(&input, &output),
+            )
+        };
+        let item = if self.wot() {
+            "ActionStatus"
+        } else {
+            "InvocationSummary"
+        };
         self.operation(&path, "GET", "list_invocations", op(json!({
             "summary": format!("All invocations of {name}."),
             "description": format!("List all the invocations of {name} that the server is keeping, with their times and links."),
             "responses": {"200": {
                 "description": format!("A list of every invocation of {name}."),
-                "content": json_content(json!({"type": "array", "items": reference("InvocationSummary")})),
+                "content": json_content(json!({"type": "array", "items": reference(item)})),
             }},
         })));
         let mut body = json!({"content": json_content(input)});
         if !takes_nothing {
             body["required"] = json!(true);
         }
+        let started = json!({"description": "Action has been invoked (and may still be running).", "content": json_content(invocation)});
+        let (notice, mut responses) = match (self.wot(), action.is_synchronous()) {
+            (false, _) => (
+                ACTION_NOTICE,
+                json!({
+                    "201": started,
+                    "200": {"description": "Action completed.", "content": json_content(output)},
+                }),
+            ),
+            (true, false) => (ASYNCHRONOUS_NOTICE, json!({"201": started})),
+            (true, true) if action.has_output() => (
+                SYNCHRONOUS_NOTICE,
+                json!({
+                    "200": {"description": "Action completed", "content": json_content(output)},
+                    "500": problem("Action failed"),
+                    "503": problem("Action unavailable"),
+                }),
+            ),
+            (true, true) => (
+                SYNCHRONOUS_NOTICE,
+                json!({
+                    "204": no_content("Action completed"),
+                    "500": problem("Action failed"),
+                    "503": problem("Action unavailable"),
+                }),
+            ),
+        };
+        self.invalid(&mut responses);
         self.operation(&path, "POST", "start_action", op(json!({
             "summary": title,
-            "description": format!("## {title}\n\n{}\n\n{ACTION_NOTICE}", action.description().unwrap_or_default()),
+            "description": format!("## {title}\n\n{}\n\n{notice}", action.description().unwrap_or_default()),
             "requestBody": body,
-            "responses": {
-                "201": {"description": "Action has been invoked (and may still be running).", "content": json_content(invocation)},
-                "200": {"description": "Action completed.", "content": json_content(output)},
-                "422": validation_error(),
-            },
+            "responses": responses,
         })));
     }
 
@@ -396,8 +656,9 @@ impl Document {
         self.operation(&format!("{base}{name}"), "GET", "subscribe_event", op(json!({
             "summary": title,
             "description": format!(
-                "## {title}\n\n{}\n\nServer-sent events: each event's data, as JSON in a `data:` line, following this schema:\n\n```json\n{}\n```",
+                "## {title}\n\n{}\n\nServer-sent events: each event's data, as JSON in a `data:` line{}, following this schema:\n\n```json\n{}\n```",
                 event.description().unwrap_or_default(),
+                self.named_events(),
                 serde_json::to_string_pretty(&data).unwrap_or_default(),
             ),
             "responses": {"200": {
@@ -445,6 +706,10 @@ impl Document {
 }
 
 const ACTION_NOTICE: &str = "## Important note\n\nThis `POST` request starts an action: the server may carry on after answering. The answer is always a 201 with the invocation, whose `href` can be polled to follow it, and whose `output` link gives the result when it has completed.";
+
+const ASYNCHRONOUS_NOTICE: &str = "## Important note\n\nThis `POST` request starts an action: the server may carry on after answering. The answer is a 201 with the invocation's `ActionStatus`, whose `href` (also in `Location`) can be polled to follow it; its `output` is there once it has completed.";
+
+const SYNCHRONOUS_NOTICE: &str = "## Important note\n\nThis action is synchronous: the answer comes when it has finished, with its output.";
 
 fn op(value: Value) -> Map<String, Value> {
     match value {
@@ -533,6 +798,55 @@ fn invocation_schema(input: &Value, output: &Value) -> Value {
     let mut required: Vec<&str> = SUMMARY_REQUIRED.to_vec();
     required.extend(["input", "log"]);
     json!({"type": "object", "properties": properties, "required": required})
+}
+
+/// One action's `ActionStatus` (`wot` profile), with its output.
+fn action_status_schema(output: &Value) -> Value {
+    let mut schema = wot_schemas()["ActionStatus"].clone();
+    schema["properties"]["output"] = output.clone();
+    schema
+}
+
+/// The schemas of the `wot` profile (`Problem` is also in the other, for
+/// discovery).
+fn wot_schemas() -> Map<String, Value> {
+    let time = json!({"type": "string", "format": "date-time"});
+    op(json!({
+        "ActionStatus": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["pending", "running", "completed", "failed"]},
+                "output": {},
+                "error": reference("Problem"),
+                "href": {"type": "string", "format": "uri"},
+                "timeRequested": time,
+                "timeEnded": time,
+            },
+            "required": ["status", "href", "timeRequested"],
+            "description": "An invocation, as the W3C WoT HTTP Basic Profile describes it.",
+        },
+        "Problem": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "format": "uri-reference"},
+                "title": {"type": "string"},
+                "status": {"type": "integer"},
+                "detail": {"type": "string"},
+                "instance": {"type": "string"},
+                "invalid-params": {"type": "array", "items": {
+                    "type": "object",
+                    "properties": {
+                        "in": {"type": "string"},
+                        "name": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "code": {"type": "string"},
+                    },
+                }},
+            },
+            "additionalProperties": true,
+            "description": "Problem details (RFC 9457). The framework's types are documented at https://github.com/lucaswewa/wot/blob/main/docs/problems.md.",
+        },
+    }))
 }
 
 /// The schemas every document has.
@@ -643,7 +957,7 @@ mod tests {
 
     #[test]
     fn duplicate_operation_ids_are_numbered() {
-        let mut document = Document::new("");
+        let mut document = Document::new("", WireProfile::TetaThing);
         // A Thing `a_b` with a property `c`, and a Thing `a` with `b_c`.
         document.operation("/a_b/c", "GET", "get_property", Map::new());
         document.operation("/a/b_c", "GET", "get_property", Map::new());

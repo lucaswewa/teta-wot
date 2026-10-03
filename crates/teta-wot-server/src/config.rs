@@ -21,6 +21,7 @@ use std::fmt;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use teta_wot_core::SlotSelection;
+use teta_wot_http::{Security, WireProfile};
 use tracing::Level;
 
 /// A server configuration.
@@ -40,10 +41,14 @@ pub struct ServerConfig {
     pub global_lock_log_level: Level,
     /// Anything the application wants Things to read.
     pub application_config: Option<Value>,
-    /// `wot-rs`: identifies the server in TD `id`s.
+    /// `teta-wot`: identifies the server in TD `id`s.
     pub server_id: Option<String>,
     /// `teta-wot-rs`: the wire profile; only `"teta"` for now.
-    pub wire_profile: Option<String>,
+    pub wire_profile: Option<WireProfile>,
+    /// `teta-wot`: the credentials interactions require.
+    pub security: Option<SecurityConfig>,
+    /// `teta-wot`: whether to advertise the server with DNS-SD over mDNS.
+    pub mdns: bool,
     /// Keys that were ignored.
     pub ignored_keys: Vec<String>,
 }
@@ -117,6 +122,8 @@ impl ServerConfig {
             application_config: None,
             server_id: None,
             wire_profile: None,
+            security: None,
+            mdns: false,
             ignored_keys: Vec::new(),
         };
 
@@ -198,16 +205,25 @@ impl ServerConfig {
         }
         match object.get("wire_profile") {
             None | Some(Value::Null) => {}
-            Some(Value::String(profile)) if profile == "teta" => {
-                config.wire_profile = Some(profile.clone());
+            Some(Value::String(profile)) if WireProfile::from_name(profile).is_some() => {
+                config.wire_profile = WireProfile::from_name(profile);
             }
             Some(_) => errors.push((
                 "wire_profile".into(),
-                "Input should be configuration file.".into(),
+                "Input should be 'tetathing' or 'wot'".into(),
             )),
         }
+        match object.get("security") {
+            None | Some(Value::Null) => {}
+            Some(value) => config.security = security_config(value, &mut errors),
+        }
+        match object.get("mdns").map(lax_bool) {
+            None => {}
+            Some(Some(enabled)) => config.mdns = enabled,
+            Some(None) => errors.push(("mdns".into(), "Input should be a valid boolean".into())),
+        }
 
-        const KNOWN: [&str; 8] = [
+        const KNOWN: [&str; 10] = [
             "things",
             "settings_folder",
             "api_prefix",
@@ -216,6 +232,8 @@ impl ServerConfig {
             "application_config",
             "server_id",
             "wire_profile",
+            "security",
+            "mdns",
         ];
         config.ignored_keys = object
             .keys()
@@ -371,4 +389,102 @@ fn thing_config(
         kwargs,
         thing_slots,
     })
+}
+
+/// The `security` key: the scheme, and where its secret is.
+/// Secrets are read from environment variables when the server is built,
+/// never from the file, which is often shared or committed.
+///
+/// ```json
+/// {"scheme": "basic", "username": "lab", "password_env": "WOT_PASSWORD"}
+/// {"scheme": "bearer", "token_env": "WOT_TOKEN"}
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SecurityConfig {
+    /// HTTP Basic authentication.
+    Basic {
+        /// The user name.
+        username: String,
+        /// The environment variable holding the password.
+        password_env: String,
+    },
+    /// A bearer token.
+    Bearer {
+        /// The environment variable holding the token.
+        token_env: String,
+    },
+}
+
+impl SecurityConfig {
+    /// The credentials, with the secret read from its environment variable.
+    pub fn resolve(&self) -> Result<Security, ConfigError> {
+        let secret = |location: &str, variable: &str| {
+            std::env::var(variable)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| ConfigError {
+                    errors: vec![(
+                        location.to_owned(),
+                        format!("The environment variable {variable} isn't set"),
+                    )],
+                })
+        };
+        Ok(match self {
+            SecurityConfig::Basic {
+                username,
+                password_env,
+            } => Security::basic(
+                username.clone(),
+                secret("security.password_env", password_env)?,
+            ),
+            SecurityConfig::Bearer { token_env } => {
+                Security::bearer(secret("security.token_env", token_env)?)
+            }
+        })
+    }
+}
+
+fn security_config(value: &Value, errors: &mut Vec<(String, String)>) -> Option<SecurityConfig> {
+    let Some(object) = value.as_object() else {
+        errors.push((
+            "security".into(),
+            "Input should be a valid dictionary".into(),
+        ));
+        return None;
+    };
+    let mut string = |key: &str| match object.get(key) {
+        Some(Value::String(value)) if !value.is_empty() => Some(value.clone()),
+        Some(_) => {
+            errors.push((
+                format!("security.{key}"),
+                "Input should be a non-empty string".into(),
+            ));
+            None
+        }
+        None => {
+            errors.push((format!("security.{key}"), "Field required".into()));
+            None
+        }
+    };
+    match object.get("scheme").and_then(Value::as_str) {
+        Some("basic") => {
+            let username = string("username");
+            let password_env = string("password_env");
+            Some(SecurityConfig::Basic {
+                username: username?,
+                password_env: password_env?,
+            })
+        }
+        Some("bearer") => Some(SecurityConfig::Bearer {
+            token_env: string("token_env")?,
+        }),
+        _ => {
+            errors.push((
+                "security.scheme".into(),
+                "Input should be 'basic' or 'bearer'".into(),
+            ));
+            None
+        }
+    }
 }

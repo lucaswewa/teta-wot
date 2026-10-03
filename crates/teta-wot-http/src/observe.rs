@@ -314,21 +314,58 @@ pub(crate) fn wants_event_stream(headers: &HeaderMap) -> bool {
 }
 
 /// A server-sent events stream of one affordance's messages: each
-/// property value or event's data, as JSON.
+/// property value or event's data, as JSON. With `named` (the `wot`
+/// profile, as the WoT HTTP SSE Profile wants), each event is named after
+/// the affordance and has an `id`, the time of the change in RFC 3339;
+/// otherwise it has only `data`, which `EventSource.onmessage` receives.
 pub(crate) fn event_stream(
     broker: &MessageBroker,
     thing: &str,
     affordance: &str,
     urls: Urls,
+    named: bool,
 ) -> Response {
-    let subscription = broker.subscribe(thing, affordance);
+    sse(broker.subscribe(thing, affordance), urls, named)
+}
+
+/// A server-sent events stream of all the Thing's observable properties
+/// (`observeallproperties`) or all its events (`subscribeallevents`): each
+/// event is named after its affordance, whatever the profile, since
+/// nothing else would tell them apart.
+pub(crate) fn all_stream(
+    broker: &MessageBroker,
+    thing: &ThingHandle,
+    kind: MessageKind,
+    urls: Urls,
+) -> Response {
+    let subscription = broker.subscription();
+    let names: Vec<String> = match kind {
+        MessageKind::Event => thing.events().map(|e| e.name().to_owned()).collect(),
+        _ => thing
+            .properties()
+            .filter(|p| p.is_observable())
+            .map(|p| p.name().to_owned())
+            .collect(),
+    };
+    for name in names {
+        broker.add(&subscription, thing.name(), &name);
+    }
+    sse(subscription, urls, true)
+}
+
+fn sse(subscription: Subscription, urls: Urls, named: bool) -> Response {
     let events = futures_util::stream::unfold(
         (subscription, urls),
-        |(mut subscription, urls)| async move {
+        move |(mut subscription, urls)| async move {
             let message = subscription.recv().await?;
             let mut payload = message.payload;
             resolve_blobs(&mut payload, &urls);
-            let event = SseEvent::default().data(payload.to_string());
+            let mut event = SseEvent::default().data(payload.to_string());
+            if named {
+                event = event
+                    .event(&message.affordance)
+                    .id(message.time.to_rfc3339_opts(SecondsFormat::Nanos, true));
+            }
             Some((Ok::<_, Infallible>(event), (subscription, urls)))
         },
     );

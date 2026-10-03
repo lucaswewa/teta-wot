@@ -257,6 +257,12 @@ impl ThingBuilder {
         self
     }
 
+    /// Sets the WoT Profiles the TD conforms to (`profile`).
+    pub fn profile(mut self, profiles: impl Into<OneOrMany<String>>) -> Self {
+        self.td.profile = Some(profiles.into());
+        self
+    }
+
     /// Sets the version of this TD instance.
     pub fn version(mut self, instance: impl Into<String>) -> Self {
         self.td.version = Some(VersionInfo {

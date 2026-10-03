@@ -208,6 +208,12 @@ impl DataSchema {
         self
     }
 
+    /// Sets the string `format`, such as `uuid` or `date-time`.
+    pub fn with_format(mut self, format: impl Into<String>) -> Self {
+        self.format = Some(format.into());
+        self
+    }
+
     /// Adds a semantic annotation (`@type`), such as `saref:Temperature`.
     pub fn with_semantic_type(mut self, semantic_type: impl Into<String>) -> Self {
         push_semantic_type(&mut self.semantic_type, semantic_type.into());

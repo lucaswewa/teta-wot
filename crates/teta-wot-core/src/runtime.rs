@@ -11,8 +11,8 @@ use std::time::Duration;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 use teta_wot_td::{
-    ActionAffordance, DataSchema, EventAffordance, Form, Link, Operation, PropertyAffordance,
-    TdError, ThingDescription,
+    ActionAffordance, DataSchema, DataType, EventAffordance, ExpectedResponse, Form, Link,
+    Operation, PropertyAffordance, SecurityScheme, TdError, ThingDescription,
 };
 
 use tracing::Level;
@@ -511,7 +511,7 @@ impl<T: Thing> Lifecycle for TypedLifecycle<T> {
 }
 
 /// Where a Thing is served, for building its Thing Description.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TdOptions {
     /// The Thing's path, with the trailing slash: `/{api_prefix}/{name}/`.
     /// Form `href`s are this path followed by the affordance's name.
@@ -533,6 +533,28 @@ pub struct TdOptions {
     /// endpoints in the TD's `links`; the
     /// HTTP binding always turns this on.
     pub links: bool,
+    /// Whether to add the Thing's top-level forms:
+    /// `readallproperties` and `writemultipleproperties` at
+    /// `{path}properties`, with `observeallproperties` there over
+    /// server-sent events, `queryallactions` at `{path}actions`, and
+    /// `subscribeallevents` at `{path}events`. Each form is left out if the
+    /// Thing has nothing it applies to.
+    pub top_level: bool,
+    /// Where invocations are served, such as `/action_invocations/`. If set,
+    /// every action says whether it is `synchronous`, and asynchronous ones
+    /// get a `queryaction` and `cancelaction` form at `{invocations}{id}`,
+    /// with `id` among the action's `uriVariables`. An action that
+    /// returns a Blob also gets a form for its download,
+    /// `{invocations}{id}/output`, whose response has the Blob's media type.
+    pub invocations: Option<String>,
+    /// Whether synchronous actions are served synchronously (the HTTP
+    /// binding's `wot` profile). If not, every action is asynchronous.
+    pub synchronous_actions: bool,
+    /// The WoT Profiles the TD conforms to (its `profile`).
+    pub profiles: Vec<String>,
+    /// The security scheme every form requires, with its name. `None` is
+    /// `nosec` scheme.
+    pub security: Option<(String, SecurityScheme)>,
 }
 
 impl TdOptions {
@@ -545,6 +567,11 @@ impl TdOptions {
             observation: false,
             websocket: None,
             links: false,
+            top_level: false,
+            invocations: None,
+            synchronous_actions: false,
+            profiles: Vec::new(),
+            security: None,
         }
     }
 }
@@ -901,7 +928,9 @@ impl ThingHandle {
     ///
     /// With [`TdOptions::observation`]: data properties are `observable`, with an SSE form (and a
     /// WebSocket form, given the URL), and events are described, in
-    /// alphabetical order, with the same two forms.
+    /// alphabetical order, with the same two forms. The other options add
+    /// top-level forms, invocation forms, `profile` and
+    /// security.
     pub fn thing_description(&self, options: &TdOptions) -> Result<ThingDescription, TdError> {
         let mut td = ThingDescription::builder(&self.title);
         if let Some(id) = &options.id {
@@ -912,6 +941,14 @@ impl ThingHandle {
         }
         if let Some(base) = &options.base {
             td = td.base(base);
+        }
+        if !options.profiles.is_empty() {
+            td = td.profile(options.profiles.clone());
+        }
+        if let Some((name, scheme)) = &options.security {
+            td = td
+                .security_definition(name, scheme.clone())
+                .security(name.clone());
         }
         for (prefix, iri) in &self.context_prefixes {
             td = td.context_prefix(prefix, iri);
@@ -980,6 +1017,33 @@ impl ThingHandle {
                     Form::new(format!("{}{}", options.path, action.name))
                         .with_op([Operation::InvokeAction]),
                 );
+            if let Some(invocations) = &options.invocations {
+                let synchronous = options.synchronous_actions && action.meta.synchronous;
+                affordance = affordance.synchronous(synchronous);
+                if !synchronous {
+                    affordance = affordance
+                        .uri_variable(
+                            "id",
+                            DataSchema::of(DataType::String)
+                                .with_title("Invocation ID")
+                                .with_format("uuid"),
+                        )
+                        .form(
+                            Form::new(format!("{invocations}{{id}}"))
+                                .with_op([Operation::QueryAction, Operation::CancelAction]),
+                        );
+                    if let Some(media_type) = crate::blob::schema_media_type(action.output_schema())
+                    {
+                        let mut form = Form::new(format!("{invocations}{{id}}/output"))
+                            .with_op([Operation::QueryAction]);
+                        form.response = Some(ExpectedResponse {
+                            content_type: media_type.to_owned(),
+                            extra: Map::new(),
+                        });
+                        affordance = affordance.form(form);
+                    }
+                }
+            }
             if let Some(description) = &action.meta.description {
                 affordance = affordance.description(description);
             }
@@ -1039,7 +1103,55 @@ impl ThingHandle {
                 }
             }
         }
+        if options.top_level {
+            td = self.top_level_forms(td, options);
+        }
         td.build()
+    }
+
+    /// The top-level forms, for what the Thing has.
+    fn top_level_forms(
+        &self,
+        mut td: teta_wot_td::ThingBuilder,
+        options: &TdOptions,
+    ) -> teta_wot_td::ThingBuilder {
+        let properties = format!("{}properties", options.path);
+        let mut ops = Vec::new();
+        if !self.properties.is_empty() {
+            ops.push(Operation::ReadAllProperties);
+        }
+        if self.properties.values().any(|p| !p.read_only) {
+            ops.push(Operation::WriteMultipleProperties);
+        }
+        if !ops.is_empty() {
+            td = td.form(Form::new(&properties).with_op(ops));
+        }
+        if options.observation && self.properties.values().any(|p| p.is_observable()) {
+            td = td.form(
+                Form::new(&properties)
+                    .with_op([
+                        Operation::ObserveAllProperties,
+                        Operation::UnobserveAllProperties,
+                    ])
+                    .with_subprotocol("sse"),
+            );
+        }
+        if !self.actions.is_empty() {
+            td = td.form(
+                Form::new(format!("{}actions", options.path)).with_op([Operation::QueryAllActions]),
+            );
+        }
+        if options.observation && !self.events.is_empty() {
+            td = td.form(
+                Form::new(format!("{}events", options.path))
+                    .with_op([
+                        Operation::SubscribeAllEvents,
+                        Operation::UnsubscribeAllEvents,
+                    ])
+                    .with_subprotocol("sse"),
+            );
+        }
+        td
     }
 }
 
@@ -1100,6 +1212,17 @@ impl ActionEntry {
     /// The output's DataSchema.
     pub fn output_schema(&self) -> &DataSchema {
         self.handler.output_schema()
+    }
+
+    /// Whether the action has an output: its output isn't always `null`
+    /// (such as an action returning `()`).
+    pub fn has_output(&self) -> bool {
+        !is_null_schema(self.handler.output_schema())
+    }
+
+    /// Whether the action is synchronous (see `Action::synchronous`).
+    pub fn is_synchronous(&self) -> bool {
+        self.meta.synchronous
     }
 
     /// Starts an invocation with a client's input and returns it at once,
@@ -1235,6 +1358,11 @@ fn accepts_null(schema: &DataSchema) -> bool {
         (None, Some(branches)) => branches.iter().any(accepts_null),
         (None, None) => schema.enumeration.is_none() && schema.constant.is_none(),
     }
+}
+
+/// Whether a schema admits only `null`.
+fn is_null_schema(schema: &DataSchema) -> bool {
+    schema.data_type == Some(teta_wot_td::DataType::Null) && schema.one_of.is_none()
 }
 
 /// Runs an invocation to the end, inside its scope and span.

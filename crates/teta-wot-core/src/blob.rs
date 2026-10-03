@@ -306,6 +306,19 @@ pub fn local_href_id(href: &str) -> Option<Uuid> {
     BlobData::find(id).map(|_| id)
 }
 
+/// The media type of a Blob, if `schema` is a Blob's DataSchema (as
+/// `Blob<M>` describes itself): an object with an `href`, a `media_type`
+/// whose default is the media type, and a `rel` fixed to `output`.
+pub fn schema_media_type(schema: &teta_wot_td::DataSchema) -> Option<&str> {
+    let properties = schema.properties.as_ref()?;
+    properties.get("href")?;
+    let rel = properties.get("rel")?.constant.as_ref()?;
+    if rel != REL {
+        return None;
+    }
+    properties.get("media_type")?.default.as_ref()?.as_str()
+}
+
 // ---- Keeping serialised Blobs alive -------------------------------------------
 
 thread_local! {

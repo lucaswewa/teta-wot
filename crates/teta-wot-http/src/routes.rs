@@ -33,6 +33,29 @@ pub(crate) enum Endpoint {
         thing: String,
         action: String,
     },
+    /// `readallproperties`, or `observeallproperties` with server-sent
+    /// events.
+    ReadAllProperties {
+        thing: String,
+    },
+    /// `writemultipleproperties`.
+    WriteMultipleProperties {
+        thing: String,
+    },
+    /// `queryallactions`.
+    QueryAllActions {
+        thing: String,
+    },
+    /// `subscribeallevents`.
+    SubscribeAllEvents {
+        thing: String,
+    },
+    /// `GET /.well-known/wot`: the directory's TD.
+    WellKnown,
+    /// `GET {prefix}/directory/things`: the TDs.
+    DirectoryThings,
+    /// `GET {prefix}/directory/things/{id}`: one TD.
+    DirectoryThing,
     /// Server-sent events of an event affordance.
     SubscribeEvent {
         thing: String,
@@ -70,6 +93,36 @@ pub(crate) enum Endpoint {
     Custom(usize),
 }
 
+impl Endpoint {
+    /// Whether the route describes rather than interacts, and so needs no
+    /// credentials: TDs, discovery, and the docs.
+    pub(crate) fn is_public(&self) -> bool {
+        matches!(
+            self,
+            Endpoint::ThingDescription { .. }
+                | Endpoint::ThingDescriptions
+                | Endpoint::ThingPaths
+                | Endpoint::OpenApi
+                | Endpoint::SwaggerUi
+                | Endpoint::OAuth2Redirect
+                | Endpoint::Redoc
+                | Endpoint::DocsAsset(_)
+                | Endpoint::WellKnown
+                | Endpoint::DirectoryThings
+                | Endpoint::DirectoryThing
+        )
+    }
+
+    /// Whether the route is discovery's, whose errors are always problem
+    /// details.
+    pub(crate) fn is_discovery(&self) -> bool {
+        matches!(
+            self,
+            Endpoint::WellKnown | Endpoint::DirectoryThings | Endpoint::DirectoryThing
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Segment {
     Literal(String),
@@ -100,13 +153,14 @@ pub(crate) enum Found<'a> {
 }
 
 /// Thing names that would clash with the server's own routes.
-pub const RESERVED_THING_NAMES: [&str; 6] = [
+pub const RESERVED_THING_NAMES: [&str; 7] = [
     "things",
     "thing_descriptions",
     "action_invocations",
     "blob",
     "docs",
     "redoc",
+    "directory",
 ];
 
 #[derive(Default)]
@@ -166,6 +220,17 @@ impl Routes {
             &format!("{prefix}/things/"),
             Method::GET,
             Endpoint::ThingPaths,
+        );
+        // Discovery: the well-known URL is at the root, as RFC 8615
+        // wants; the directory is under the prefix.
+        routes.add_get_and_head("/.well-known/wot", Endpoint::WellKnown);
+        routes.add_get_and_head(
+            &format!("{prefix}/directory/things"),
+            Endpoint::DirectoryThings,
+        );
+        routes.add_get_and_head(
+            &format!("{prefix}/directory/things/{{id}}"),
+            Endpoint::DirectoryThing,
         );
 
         for thing in runtime.things() {
@@ -248,6 +313,36 @@ impl Routes {
                     &format!("{path}/viewer"),
                     Method::GET,
                     Endpoint::StreamViewer { thing, stream },
+                );
+            }
+            // The top-level resources, where the TD has their forms.
+            let owned = || name.to_owned();
+            if thing.properties().next().is_some() {
+                routes.add(
+                    &format!("{base}properties"),
+                    Method::GET,
+                    Endpoint::ReadAllProperties { thing: owned() },
+                );
+            }
+            if thing.properties().any(|p| !p.is_read_only()) {
+                routes.add(
+                    &format!("{base}properties"),
+                    Method::PUT,
+                    Endpoint::WriteMultipleProperties { thing: owned() },
+                );
+            }
+            if thing.actions().next().is_some() {
+                routes.add(
+                    &format!("{base}actions"),
+                    Method::GET,
+                    Endpoint::QueryAllActions { thing: owned() },
+                );
+            }
+            if thing.events().next().is_some() {
+                routes.add(
+                    &format!("{base}events"),
+                    Method::GET,
+                    Endpoint::SubscribeAllEvents { thing: owned() },
                 );
             }
             for endpoint in thing.endpoints() {

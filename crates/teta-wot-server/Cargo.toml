@@ -13,6 +13,9 @@ testing = ["dep:futures-util", "dep:tempfile", "dep:tokio-tungstenite"]
 ## Serve the Swagger UI and ReDoc assets from the binary, for labs without
 ## network access.
 docs-offline = ["teta-wot-http/docs-offline"]
+## Advertise the server with DNS-SD over mDNS (`_wot._tcp`, W3C WoT
+## Discovery), when asked to.
+mdns = ["dep:mdns-sd"]
 
 [dependencies]
 axum.workspace = true
@@ -22,6 +25,7 @@ futures-util = { workspace = true, optional = true }
 http.workspace = true
 http-body-util.workspace = true
 indexmap.workspace = true
+mdns-sd = { workspace = true, optional = true }
 serde_json.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true

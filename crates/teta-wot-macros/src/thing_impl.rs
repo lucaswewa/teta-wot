@@ -370,6 +370,7 @@ fn parse_action(attr: &Attribute, method: ImplItemFn) -> syn::Result<Action> {
             "description",
             "semantic_type",
             "global_lock",
+            "synchronous",
         ],
     )?;
     check_method(&method, "action", Some(options.blocking))?;
@@ -848,8 +849,9 @@ fn action_tokens(
     let retention = options.retention.as_ref().map(|r| {
         quote!(.retention(::std::time::Duration::from_secs_f64(::core::convert::Into::<f64>::into(#r))))
     });
+    let synchronous = options.synchronous.then(|| quote!(.synchronous(true)));
     let definition = quote! {
-        .action(#name, ::teta_wot::Action::new(#handler) #described #retention)
+        .action(#name, ::teta_wot::Action::new(#handler) #described #retention #synchronous)
         #(#requires)*
     };
 

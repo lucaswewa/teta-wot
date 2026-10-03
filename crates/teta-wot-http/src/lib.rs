@@ -1,24 +1,40 @@
-//! HTTP binding of `teta-wot`.
+//! HTTP binding of `wot-rs`, in two wire profiles.
 //!
-//! [`router`] turns a [`Runtime`] into an axum [`Router`]
+//! [`router`] turns a [`Runtime`] into an axum [`Router`]. By default it
+//! behaves on the wire using teta-wot style; with
+//! [`WireProfile::Wot`] it follows the W3C WoT HTTP Basic and SSE Profiles
+//! where the two conflict.
 //!
 //! | Route | Methods |
 //! |---|---|
 //! | `{prefix}/{thing}/` | `GET` the Thing Description |
-//! | `{prefix}/{thing}/{property}` | `GET`, and `PUT` if writable (201, `null`) |
+//! | `{prefix}/{thing}/{property}` | `GET`, and `PUT` if writable (201 and `null`; 204 in `wot`); `GET` with `Accept: text/event-stream` observes a data property (SSE) |
 //! | `{prefix}/{thing}/{property}/reset` | `POST` if resettable and writable |
-//! | `{prefix}/{thing}/{action}` | `POST` invokes (201 with `Location`), `GET` lists invocations |
+//! | `{prefix}/{thing}/{action}` | `POST` invokes (201 with `Location`; 200 or 204 for a synchronous action in `wot`), `GET` lists invocations |
+//! | `{prefix}/{thing}/properties` | `GET` reads all properties, or observes them all with `Accept: text/event-stream`; `PUT` writes several (204) |
+//! | `{prefix}/{thing}/actions` | `GET` the invocations of each action, newest first|
+//! | `{prefix}/{thing}/events` | `GET` subscribes to all events (SSE) |
 //! | `{prefix}/action_invocations` | `GET` lists every invocation |
-//! | `{prefix}/action_invocations/{id}` | `GET`, `DELETE` cancels |
+//! | `{prefix}/action_invocations/{id}` | `GET` (`queryaction`), `DELETE` cancels (`cancelaction`) |
 //! | `{prefix}/action_invocations/{id}/output` | `GET` |
 //! | `{prefix}/things/`, `{prefix}/thing_descriptions/` | `GET` |
 //! | `{prefix}/{thing}/{event}` | `GET` subscribes to an event (SSE) |
 //! | `{prefix}/{thing}/ws` | a WebSocket, plus event subscriptions |
 //! | `{prefix}/{thing}/{path}` | a custom [`Endpoint`]'s method |
-//! | `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc` | `GET` and `HEAD`: the OpenAPI document ([`openapi`]) and the docs pages, at the root |
+//! | `/.well-known/wot`, `{prefix}/directory/things`, `{prefix}/directory/things/{id}` | `GET` and `HEAD`: discovery, a read-only TD Directory |
+//! | `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc` | `GET` and `HEAD`: the OpenAPI document ([`openapi`]) and the docs pages, at the root as in FastAPI |
 //!
+//! In the `tetathing` profile, routing, redirects, 404/405, CORS, error
+//! bodies and invocation JSON follow the reference as captured in
+//! `conformance/fixtures/http/`. The W3C additions that don't conflict are
+//! on in both profiles: the TD `id`, the `Location` header,
+//! observation and events described in the TD, top-level forms, invocation forms and discovery.
+//! The `wot` profile changes: 204 writes,
+//! 400 validation errors, `application/problem+json`, and `ActionStatus`
+//! objects.
 
 mod cors;
+mod discovery;
 mod docs;
 mod endpoint;
 mod fallback;
@@ -26,8 +42,10 @@ mod handlers;
 mod observe;
 mod openapi;
 mod output;
+mod problem;
 mod render;
 mod routes;
+mod security;
 
 use std::sync::Arc;
 
@@ -39,7 +57,16 @@ pub use docs::{OFFLINE as DOCS_OFFLINE, REDOC_VERSION, SWAGGER_UI_VERSION};
 pub use endpoint::Endpoint;
 pub use fallback::{FallbackPage, fallback_router};
 pub use openapi::{openapi, operation_id};
+pub use problem::{PROBLEM_TYPES_URL, problem_type};
 pub use routes::RESERVED_THING_NAMES;
+
+/// The identifier of the W3C WoT HTTP Basic Profile, in the `profile` of
+/// TDs served in the `wot` profile.
+pub const HTTP_BASIC_PROFILE: &str = "https://www.w3.org/2022/wot/profile/http-basic/v1";
+
+/// The identifier of the W3C WoT HTTP SSE Profile, in the `profile` of TDs
+/// served in the `wot` profile.
+pub const HTTP_SSE_PROFILE: &str = "https://www.w3.org/2022/wot/profile/http-sse/v1";
 
 // Custom endpoints are written with this axum; re-exported so that Thing
 // code uses the same version.
@@ -57,6 +84,10 @@ pub struct HttpOptions {
     pub api_title: String,
     /// The API's version in the OpenAPI document.
     pub api_version: String,
+    /// How the server behaves where tetathing and the W3C differ.
+    pub profile: WireProfile,
+    /// The credentials every interaction requires, if any.
+    pub security: Option<Security>,
 }
 
 impl Default for HttpOptions {
@@ -66,6 +97,98 @@ impl Default for HttpOptions {
             server_id: default_server_id(),
             api_title: "wot-rs".to_owned(),
             api_version: "0.1.0".to_owned(),
+            profile: WireProfile::default(),
+            security: None,
+        }
+    }
+}
+
+/// The wire profile. It is server-wide.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum WireProfile {
+    /// teta-wot behaviour, which its clients depend on
+    /// (the default).
+    #[default]
+    TetaThing,
+    /// The W3C WoT HTTP Basic and SSE Profiles: 204 for writes, 400 and
+    /// `application/problem+json` for errors, `ActionStatus` objects,
+    /// synchronous actions and named server-sent events.
+    Wot,
+}
+
+impl WireProfile {
+    /// The profile's name in configuration files: `tetathing` or `wot`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WireProfile::TetaThing => "tetathing",
+            WireProfile::Wot => "wot",
+        }
+    }
+
+    /// The profile named `name`, if there is one.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "tetathing" => Some(WireProfile::TetaThing),
+            "wot" => Some(WireProfile::Wot),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for WireProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Credentials that every interaction with a Thing requires, described in
+/// the TDs' `securityDefinitions`. Thing Descriptions,
+/// the directory, the OpenAPI document and the docs stay public, so that
+/// clients can learn what to send.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Security {
+    /// HTTP Basic authentication (RFC 7617), as the WoT Profile allows.
+    Basic {
+        /// The user name.
+        username: String,
+        /// The password.
+        password: String,
+    },
+    /// A bearer token (RFC 6750), compared as an opaque string.
+    Bearer {
+        /// The token.
+        token: String,
+    },
+}
+
+impl Security {
+    /// HTTP Basic authentication with one user name and password.
+    pub fn basic(username: impl Into<String>, password: impl Into<String>) -> Self {
+        Security::Basic {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
+    /// A bearer token.
+    pub fn bearer(token: impl Into<String>) -> Self {
+        Security::Bearer {
+            token: token.into(),
+        }
+    }
+}
+
+// Credentials stay out of logs.
+impl std::fmt::Debug for Security {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Security::Basic { username, .. } => f
+                .debug_struct("Basic")
+                .field("username", username)
+                .finish_non_exhaustive(),
+            Security::Bearer { .. } => f.debug_struct("Bearer").finish_non_exhaustive(),
         }
     }
 }

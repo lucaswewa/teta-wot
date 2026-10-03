@@ -15,6 +15,9 @@ testing = ["teta-wot-core/testing", "teta-wot-server/testing"]
 ## Serve the interactive API docs (`/docs`, `/redoc`) with their assets
 ## compiled in, so they work without network access.
 docs-offline = ["teta-wot-server/docs-offline"]
+## Advertise the server on the local network with DNS-SD over mDNS
+## (`ThingServerBuilder::mdns`, W3C WoT Discovery).
+mdns = ["teta-wot-server/mdns"]
 
 [dependencies]
 teta-wot-core.workspace = true

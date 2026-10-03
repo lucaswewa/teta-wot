@@ -242,6 +242,7 @@ pub struct Described {
 pub struct Options {
     pub readonly: bool,
     pub blocking: bool,
+    pub synchronous: bool,
     pub default: Option<Expr>,
     pub constraints: Vec<(Ident, Expr)>,
     pub retention: Option<Expr>,
@@ -307,6 +308,7 @@ impl Options {
         match key {
             "readonly" => self.readonly = true,
             "blocking" => self.blocking = true,
+            "synchronous" => self.synchronous = true,
             "default" => self.default = Some(meta.value()?.parse()?),
             "retention" => self.retention = Some(meta.value()?.parse()?),
             "title" => self.described.title = Some(meta.value()?.parse()?),
