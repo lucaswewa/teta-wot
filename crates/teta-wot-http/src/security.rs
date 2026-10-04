@@ -11,7 +11,7 @@ use crate::problem::HttpError;
 use crate::{Security, WireProfile};
 
 /// The realm named in `WWW-Authenticate`.
-const REALM: &str = "wot-rs";
+const REALM: &str = "teta-wot";
 
 /// The TD's security definition for `security`: its name and scheme.
 pub(crate) fn scheme(security: &Security) -> (String, SecurityScheme) {
@@ -151,7 +151,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
             response.headers()[WWW_AUTHENTICATE],
-            "Bearer realm=\"wot-rs\""
+            "Bearer realm=\"teta-wot\""
         );
     }
 }

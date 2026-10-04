@@ -1,6 +1,6 @@
 [package]
 name = "teta-wot-core"
-description = "Runtime core of wot-rs: Things, property cells, invocations, cancellation, events, device actors."
+description = "Runtime core of teta-wot: Things, property cells, invocations, cancellation, events, device actors."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

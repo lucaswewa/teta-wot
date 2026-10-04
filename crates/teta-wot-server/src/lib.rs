@@ -1,4 +1,4 @@
-//! The `wot-rs` server: Things, the HTTP binding, and their lifecycle.
+//! The `teta-wot` server: Things, the HTTP binding, and their lifecycle.
 //!
 //! [`ThingServer`] puts a [`Runtime`] behind the HTTP binding and runs it:
 //!
@@ -176,7 +176,7 @@ impl ThingServerBuilder {
     }
 
     /// The API's title and version, in the OpenAPI document and the docs
-    /// pages (`wot-rs` and `0.1.0` by default).
+    /// pages (`teta-wot` and `0.1.0` by default).
     pub fn api_info(mut self, title: impl Into<String>, version: impl Into<String>) -> Self {
         self.http.api_title = title.into();
         self.http.api_version = version.into();

@@ -40,7 +40,7 @@ pub struct Thermometer {
 }
 
 /// The DNS-SD instance name: the server ID.
-const INSTANCE: &str = "wot-rs discovery example";
+const INSTANCE: &str = "teta-wot discovery example";
 
 #[tokio::main]
 async fn main() -> ExitCode {

@@ -1,4 +1,4 @@
-//! Runtime core of `wot-rs`.
+//! Runtime core of `teta-wot`.
 //!
 //! - [`Thing`] and [`ThingDefinition`]: the public builder API that
 //!   describes a Thing type's properties, actions, devices and custom

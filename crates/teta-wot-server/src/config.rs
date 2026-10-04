@@ -43,7 +43,7 @@ pub struct ServerConfig {
     pub application_config: Option<Value>,
     /// `teta-wot`: identifies the server in TD `id`s.
     pub server_id: Option<String>,
-    /// `teta-wot-rs`: the wire profile; only `"teta"` for now.
+    /// `teta-wot`: the wire profile; only `"teta"` for now.
     pub wire_profile: Option<WireProfile>,
     /// `teta-wot`: the credentials interactions require.
     pub security: Option<SecurityConfig>,

@@ -27,6 +27,10 @@ jobs:
         run: cargo doc --workspace --all-features --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
+      # The workspace build turns `docs-offline` on (an example needs it), so
+      # the online docs pages are tested with packages built on their own.
+      - name: Docs pages with Swagger UI and ReDoc from jsDelivr
+        run: cargo test --locked -p teta-wot-http -p teta-wot --lib
       - name: Example smoke tests
         shell: bash
         run: |
@@ -36,3 +40,8 @@ jobs:
             cargo run --quiet --locked --manifest-path "$example/Cargo.toml"
             echo "::endgroup::"
           done
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@0.5.4
+      - name: The guide
+        run: mdbook build docs/guide

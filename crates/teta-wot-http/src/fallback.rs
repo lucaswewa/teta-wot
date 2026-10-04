@@ -32,7 +32,7 @@ impl FallbackPage {
     pub fn html(&self) -> String {
         let mut html = String::from(
             "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\" />\n\
-             <title>wot-rs: the server failed to start</title>\n\
+             <title>teta-wot: the server failed to start</title>\n\
              <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n\
              <style>\nbody { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.5; color: #1f2933; }\n\
              main { max-width: 900px; margin: 0 auto; }\n\
@@ -68,7 +68,7 @@ impl FallbackPage {
             _ => html.push_str("<p class=\"muted\">No logging information available.</p>\n"),
         }
         html.push_str(
-            "</main>\n<footer class=\"muted\">wot-rs fallback server</footer>\n</body>\n</html>\n",
+            "</main>\n<footer class=\"muted\">teta-wot fallback server</footer>\n</body>\n</html>\n",
         );
         html
     }

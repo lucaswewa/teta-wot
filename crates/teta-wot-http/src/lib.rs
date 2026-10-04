@@ -1,4 +1,4 @@
-//! HTTP binding of `wot-rs`, in two wire profiles.
+//! HTTP binding of `teta-wot`, in two wire profiles.
 //!
 //! [`router`] turns a [`Runtime`] into an axum [`Router`]. By default it
 //! behaves on the wire using teta-wot style; with
@@ -95,7 +95,7 @@ impl Default for HttpOptions {
         Self {
             api_prefix: String::new(),
             server_id: default_server_id(),
-            api_title: "wot-rs".to_owned(),
+            api_title: "teta-wot".to_owned(),
             api_version: "0.1.0".to_owned(),
             profile: WireProfile::default(),
             security: None,
@@ -265,7 +265,7 @@ pub fn thing_description(
 }
 
 /// A stable TD `id` for a Thing: `urn:uuid:` followed by the UUIDv5
-/// of `{server_id}/{thing}` in the `wot-rs` namespace, so it survives
+/// of `{server_id}/{thing}` in the `teta-wot` namespace, so it survives
 /// restarts and differs between servers.
 pub fn td_id(server_id: &str, thing: &str) -> String {
     let namespace = Uuid::new_v5(

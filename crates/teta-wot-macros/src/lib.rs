@@ -1,4 +1,4 @@
-//! Proc-macros for authoring `wot-rs` Things: `#[derive(Thing)]` and
+//! Proc-macros for authoring `teta-wot` Things: `#[derive(Thing)]` and
 //! `#[thing_impl]`. Use them through the `teta_wot` crate (`teta_wot::Thing`,
 //! `teta_wot::thing_impl`), whose documentation they refer to.
 //!

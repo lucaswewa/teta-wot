@@ -1,4 +1,4 @@
-//! Setting up `tracing` for a `wot-rs` process.
+//! Setting up `tracing` for a `teta-wot` process.
 
 use tracing::Level;
 use tracing_subscriber::filter::LevelFilter;

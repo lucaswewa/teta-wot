@@ -153,8 +153,8 @@ fn install(args: &[String]) -> anyhow::Result<()> {
     let log = folder.join("microscope-service.log");
     service::install(&InstallOptions {
         name: NAME.into(),
-        display_name: "wot-rs simulated microscope".into(),
-        description: "A simulated stage, camera and autofocus, served as W3C Web of Things Things (the wot-rs microscope-service example).".into(),
+        display_name: "teta-wot simulated microscope".into(),
+        description: "A simulated stage, camera and autofocus, served as W3C Web of Things Things (the teta-wot microscope-service example).".into(),
         executable: executable.clone(),
         arguments: ["run", "-c"]
             .into_iter()

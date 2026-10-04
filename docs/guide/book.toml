@@ -1,0 +1,13 @@
+[book]
+title = "The teta-wot guide"
+description = "Laboratory hardware and software as W3C WoT Things, in Rust."
+language = "en"
+src = "src"
+
+[build]
+# Built books go under `target/`, out of the sources.
+build-dir = "../../target/guide"
+
+[output.html]
+git-repository-url = "https://github.com/lucaswewa/teta-wot"
+edit-url-template = "https://github.com/lucaswewa/teta-wot/edit/main/docs/guide/{path}"

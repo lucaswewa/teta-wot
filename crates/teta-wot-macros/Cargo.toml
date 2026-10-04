@@ -1,6 +1,6 @@
 [package]
 name = "teta-wot-macros"
-description = "Proc-macros for authoring wot-rs Things: #[derive(Thing)] and #[thing_impl]."
+description = "Proc-macros for authoring teta-wot Things: #[derive(Thing)] and #[thing_impl]."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

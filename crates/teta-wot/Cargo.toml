@@ -1,6 +1,6 @@
 [package]
 name = "teta-wot"
-description = "wot-rs: expose laboratory hardware and software as W3C Web of Things Things. This is the crate that applications depend on."
+description = "teta-wot: expose laboratory hardware and software as W3C Web of Things Things. This is the crate that applications depend on."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

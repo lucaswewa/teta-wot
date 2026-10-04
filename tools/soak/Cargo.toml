@@ -1,0 +1,18 @@
+[package]
+name = "soak"
+description = "The soak test: drives the simulated microscope with every kind of client for a given time, and watches its memory (ADR-0059)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["connect"] }
+
+[lints]
+workspace = true
