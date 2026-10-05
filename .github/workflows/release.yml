@@ -45,9 +45,8 @@ jobs:
           mkdir -p "dist/${name}"
           cp target/release/simulated-microscope.exe target/release/microscope-service.exe "dist/${name}/"
           cp examples/simulated-microscope/microscope.json examples/simulated-microscope/demo.py "dist/${name}/"
-          cp CHANGELOG.md THIRD_PARTY_NOTICES.md "dist/${name}/"
+          cp CHANGELOG.md "dist/${name}/"
           sed "s/{version}/${version}/" tools/release/README.txt > "dist/${name}/README.txt"
-          python tools/licenses.py simulated-microscope microscope-service > "dist/${name}/THIRD_PARTY_LICENSES.txt"
           (cd dist && 7z a -tzip "${name}.zip" "${name}" > /dev/null && rm -r "${name}")
           git archive --format=zip --prefix="teta-wot-${version}/" -o "dist/teta-wot-${version}-source.zip" "${GITHUB_REF_NAME}"
           git archive --format=tar.gz --prefix="teta-wot-${version}/" -o "dist/teta-wot-${version}-source.tar.gz" "${GITHUB_REF_NAME}"
