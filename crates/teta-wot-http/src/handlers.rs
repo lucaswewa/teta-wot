@@ -16,9 +16,10 @@ use teta_wot_core::{
 use tower::ServiceExt;
 use uuid::Uuid;
 
+use crate::endpoint::PathParams;
 use crate::problem::HttpError;
 use crate::render::{self, Urls, created, redirect};
-use crate::routes::{Endpoint, Found, Route, Routes};
+use crate::routes::{Endpoint, Found, Params, Route, Routes};
 use crate::{HTTP_BASIC_PROFILE, HTTP_SSE_PROFILE, HttpOptions, WireProfile, td_id};
 use crate::{discovery, docs, observe, output, security};
 
@@ -50,7 +51,7 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
     let urls = Urls::from_request(&parts, &app.options.api_prefix);
     let path = parts.uri.path().to_owned();
     let mut response = match app.routes.find(&parts.method, &path) {
-        Found::Route(route, param) => {
+        Found::Route(route, params) => {
             match app
                 .deny(&parts.headers)
                 .filter(|_| !route.endpoint.is_public())
@@ -59,7 +60,7 @@ pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> R
                     drain(body).await;
                     denied
                 }
-                None => app.route(route, param, parts, body, urls).await,
+                None => app.route(route, params, parts, body, urls).await,
             }
         }
         Found::WrongMethod(route) => {
@@ -142,21 +143,32 @@ impl App {
     async fn route(
         &self,
         route: &Route,
-        param: Option<String>,
-        parts: http::request::Parts,
+        params: Params,
+        mut parts: http::request::Parts,
         body: Body,
         urls: Urls,
     ) -> Response {
+        // A custom endpoint gets the whole request, for its extractors, and
+        // its path parameters, for `PathParams`.
+        if let Endpoint::Custom(index) = &route.endpoint {
+            let Some(params) = PathParams::decode(params) else {
+                drain(body).await;
+                return self.error(HttpError::Status(
+                    StatusCode::BAD_REQUEST,
+                    "A path parameter isn't valid UTF-8 once decoded".into(),
+                ));
+            };
+            parts.extensions.insert(params);
+            let service = self.routes.services[*index].clone();
+            return match service.oneshot(Request::from_parts(parts, body)).await {
+                Ok(response) => response,
+                Err(never) => match never {},
+            };
+        }
+        // The framework's routes have at most one parameter, an ID.
+        let param = params.into_iter().next().map(|(_, value)| value);
         let broker = self.runtime.broker();
         match &route.endpoint {
-            // A custom endpoint gets the whole request, for its extractors.
-            Endpoint::Custom(index) => {
-                let service = self.routes.services[*index].clone();
-                match service.oneshot(Request::from_parts(parts, body)).await {
-                    Ok(response) => response,
-                    Err(never) => match never {},
-                }
-            }
             Endpoint::ReadProperty { thing, property }
                 if observe::wants_event_stream(&parts.headers)
                     && self

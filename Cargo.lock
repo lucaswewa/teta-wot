@@ -1300,6 +1300,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "path-parameters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "teta-wot",
+ "tokio",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1999,6 +2008,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body-util",
+ "percent-encoding",
  "proptest",
  "serde_json",
  "teta-wot-core",

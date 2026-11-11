@@ -123,12 +123,51 @@ impl Endpoint {
     }
 }
 
+/// A segment of a route's pattern.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Segment {
+pub(crate) enum Segment {
     Literal(String),
-    /// A path parameter (the invocation ID): any non-empty segment.
-    Param,
+    /// A path parameter, `{name}`: any non-empty segment.
+    Param(String),
+    /// A wildcard, `{*name}`, always last: the rest of the path, slashes
+    /// included, if it isn't empty.
+    Wildcard(String),
 }
+
+impl Segment {
+    pub(crate) fn parse(segment: &str) -> Self {
+        match segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+            Some(inner) => match inner.strip_prefix('*') {
+                Some(name) => Segment::Wildcard(name.to_owned()),
+                None => Segment::Param(inner.to_owned()),
+            },
+            None => Segment::Literal(segment.to_owned()),
+        }
+    }
+
+    /// How specific the segment is: lower wins.
+    fn rank(&self) -> u8 {
+        match self {
+            Segment::Literal(_) => 0,
+            Segment::Param(_) => 1,
+            Segment::Wildcard(_) => 2,
+        }
+    }
+
+    /// Whether two segments match the same paths, whatever their names.
+    fn same_shape(&self, other: &Segment) -> bool {
+        match (self, other) {
+            (Segment::Literal(a), Segment::Literal(b)) => a == b,
+            (Segment::Param(_), Segment::Param(_))
+            | (Segment::Wildcard(_), Segment::Wildcard(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+/// The path parameters of a match, by name, as they are in the path (still
+/// percent-encoded).
+pub(crate) type Params = Vec<(String, String)>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Route {
@@ -144,8 +183,8 @@ pub(crate) struct Route {
 /// The result of looking up a request.
 #[derive(Debug)]
 pub(crate) enum Found<'a> {
-    /// Path and method match; with the path parameter, if any.
-    Route(&'a Route, Option<String>),
+    /// Path and method match; with the path parameters.
+    Route(&'a Route, Params),
     /// The path matches a route with another method.
     WrongMethod(&'a Route),
     /// Nothing matches.
@@ -353,10 +392,13 @@ impl Routes {
                 };
                 let method =
                     Method::from_bytes(endpoint.method().as_bytes()).map_err(|_| conflict())?;
+                // A route of the same shape would match exactly the same
+                // requests, so neither could be chosen over the other.
+                let segments: Vec<Segment> = path.split('/').map(Segment::parse).collect();
                 if routes
                     .routes
                     .iter()
-                    .any(|r| r.method == method && r.matches(&path).is_some())
+                    .any(|r| r.method == method && r.same_shape(&segments))
                 {
                     return Err(conflict());
                 }
@@ -382,16 +424,7 @@ impl Routes {
     }
 
     fn add(&mut self, pattern: &str, method: Method, endpoint: Endpoint) {
-        let segments = pattern
-            .split('/')
-            .map(|s| {
-                if s == "{id}" {
-                    Segment::Param
-                } else {
-                    Segment::Literal(s.to_owned())
-                }
-            })
-            .collect();
+        let segments = pattern.split('/').map(Segment::parse).collect();
         self.routes.push(Route {
             segments,
             method,
@@ -410,18 +443,33 @@ impl Routes {
         }
     }
 
-    /// Looks up a request by method and path.
+    /// Looks up a request by method and path. Of the routes that match, the
+    /// most specific wins: compared segment by segment, a literal beats a
+    /// parameter, and a parameter beats a wildcard. Between equals, the
+    /// first added wins.
     pub(crate) fn find(&self, method: &Method, path: &str) -> Found<'_> {
-        let mut wrong_method = None;
+        let mut best: Option<(&Route, Params)> = None;
+        let mut wrong_method: Option<&Route> = None;
         for route in &self.routes {
-            if let Some(param) = route.matches(path) {
-                if route.method == *method {
-                    return Found::Route(route, param);
+            let Some(params) = route.matches(path) else {
+                continue;
+            };
+            if route.method != *method {
+                if wrong_method.is_none_or(|w| route.more_specific_than(w)) {
+                    wrong_method = Some(route);
                 }
-                wrong_method.get_or_insert(route);
+            } else if best
+                .as_ref()
+                .is_none_or(|(b, _)| route.more_specific_than(b))
+            {
+                best = Some((route, params));
             }
         }
-        wrong_method.map_or(Found::Nothing, Found::WrongMethod)
+        match (best, wrong_method) {
+            (Some((route, params)), _) => Found::Route(route, params),
+            (None, Some(route)) => Found::WrongMethod(route),
+            (None, None) => Found::Nothing,
+        }
     }
 
     /// Whether any route has this path, whatever its method.
@@ -431,21 +479,58 @@ impl Routes {
 }
 
 impl Route {
-    /// `Some(param)` if the path matches (`param` is the path parameter, if any).
-    fn matches(&self, path: &str) -> Option<Option<String>> {
+    /// The path parameters, if the path matches.
+    fn matches(&self, path: &str) -> Option<Params> {
         let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() != self.segments.len() {
+        let wildcard = match self.segments.last() {
+            Some(Segment::Wildcard(name)) => Some(name),
+            _ => None,
+        };
+        let fixed = self.segments.len() - usize::from(wildcard.is_some());
+        let enough = match wildcard {
+            Some(_) => parts.len() > fixed,
+            None => parts.len() == fixed,
+        };
+        if !enough {
             return None;
         }
-        let mut param = None;
-        for (segment, part) in self.segments.iter().zip(parts) {
+        let mut params = Vec::new();
+        for (segment, part) in self.segments[..fixed].iter().zip(&parts) {
             match segment {
-                Segment::Literal(literal) if literal == part => {}
-                Segment::Param if !part.is_empty() => param = Some(part.to_owned()),
+                Segment::Literal(literal) if literal == *part => {}
+                Segment::Param(name) if !part.is_empty() => {
+                    params.push((name.clone(), (*part).to_owned()));
+                }
                 _ => return None,
             }
         }
-        Some(param)
+        if let Some(name) = wildcard {
+            let rest = parts[fixed..].join("/");
+            if rest.is_empty() {
+                return None;
+            }
+            params.push((name.clone(), rest));
+        }
+        Some(params)
+    }
+
+    /// Whether this route wins over `other` when both match a path.
+    fn more_specific_than(&self, other: &Route) -> bool {
+        self.segments
+            .iter()
+            .map(Segment::rank)
+            .lt(other.segments.iter().map(Segment::rank))
+    }
+
+    /// Whether this route's pattern matches exactly the paths `segments`
+    /// does.
+    fn same_shape(&self, segments: &[Segment]) -> bool {
+        self.segments.len() == segments.len()
+            && self
+                .segments
+                .iter()
+                .zip(segments)
+                .all(|(a, b)| a.same_shape(b))
     }
 }
 
@@ -463,14 +548,18 @@ mod tests {
         routes
     }
 
+    fn param(name: &str, value: &str) -> (String, String) {
+        (name.to_owned(), value.to_owned())
+    }
+
     #[test]
-    fn the_first_full_match_wins() {
+    fn full_matches_are_found_with_their_parameters() {
         let routes = table();
         assert!(
-            matches!(routes.find(&Method::GET, "/t/p"), Found::Route(r, None) if r.endpoint == Endpoint::ThingPaths)
+            matches!(routes.find(&Method::GET, "/t/p"), Found::Route(r, p) if r.endpoint == Endpoint::ThingPaths && p.is_empty())
         );
         assert!(
-            matches!(routes.find(&Method::GET, "/a/xyz"), Found::Route(_, Some(id)) if id == "xyz")
+            matches!(routes.find(&Method::GET, "/a/xyz"), Found::Route(_, p) if p == [param("id", "xyz")])
         );
         assert!(
             matches!(routes.find(&Method::GET, "/a/xyz/output"), Found::Route(r, _) if r.endpoint == Endpoint::InvocationOutput)
@@ -497,5 +586,49 @@ mod tests {
             matches!(routes.find(&Method::GET, "/a/"), Found::Nothing),
             "an empty parameter doesn't match"
         );
+    }
+
+    #[test]
+    fn literals_beat_parameters_and_parameters_beat_wildcards() {
+        let mut routes = Routes::default();
+        // Added least specific first: the order mustn't decide.
+        routes.add("/x/{*rest}", Method::GET, Endpoint::DownloadBlob);
+        routes.add("/x/{a}", Method::GET, Endpoint::OpenApi);
+        routes.add("/x/{a}/c", Method::GET, Endpoint::ListInvocations);
+        routes.add("/x/b/{c}", Method::GET, Endpoint::ThingPaths);
+        routes.add("/x/b/c", Method::GET, Endpoint::GetInvocation);
+        let found = |path| match routes.find(&Method::GET, path) {
+            Found::Route(route, params) => Some((route.endpoint.clone(), params)),
+            _ => None,
+        };
+        assert_eq!(found("/x/b/c"), Some((Endpoint::GetInvocation, vec![])));
+        assert_eq!(
+            found("/x/b/z"),
+            Some((Endpoint::ThingPaths, vec![param("c", "z")]))
+        );
+        assert_eq!(
+            found("/x/q/c"),
+            Some((Endpoint::ListInvocations, vec![param("a", "q")]))
+        );
+        assert_eq!(
+            found("/x/q"),
+            Some((Endpoint::OpenApi, vec![param("a", "q")]))
+        );
+        assert_eq!(
+            found("/x/q/r/s"),
+            Some((Endpoint::DownloadBlob, vec![param("rest", "q/r/s")]))
+        );
+        assert_eq!(found("/x/"), None, "an empty rest doesn't match");
+    }
+
+    #[test]
+    fn routes_of_the_same_shape_are_recognised_whatever_their_names() {
+        let mut routes = Routes::default();
+        routes.add("/x/{a}/c", Method::GET, Endpoint::ListInvocations);
+        let shape =
+            |pattern: &str| -> Vec<Segment> { pattern.split('/').map(Segment::parse).collect() };
+        assert!(routes.routes[0].same_shape(&shape("/x/{other}/c")));
+        assert!(!routes.routes[0].same_shape(&shape("/x/b/c")));
+        assert!(!routes.routes[0].same_shape(&shape("/x/{*rest}")));
     }
 }

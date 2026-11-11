@@ -2,7 +2,7 @@
 
 **Concept:** HTTP routes of a Thing that aren't affordances: a file download, plain text, and a `POST` of raw text. They are served at `/{thing}/{path}` but aren't in the Thing Description.
 
-**Technologies:** `#[endpoint(get, "path")]` in `#[thing_impl]`; axum extractors (`Query`, `HeaderMap`, `String`) and responses (`Response`, `StatusCode`), through `teta_wot::http::axum`.
+**Technologies:** `#[endpoint(get, "path")]` in `#[thing_impl]`; axum extractors (`Query`, `HeaderMap`, `String`) and responses (`Response`, `StatusCode`), through `teta_wot::http::axum`. For values in the path itself, such as `tiles/{level}/{tile}`, see [`path-parameters`](../path-parameters/README.md).
 
 ## Run it
 

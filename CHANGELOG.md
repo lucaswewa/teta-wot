@@ -6,6 +6,13 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Added
 
+- **Path parameters in custom endpoints.**
+  - An endpoint's path can have parameters, as whole segments: `#[endpoint(get, "tiles/{level}/{tile}")]`. Its last segment can be a wildcard, `{*rest}`, for the rest of the path.
+  - The new `PathParams` extractor (`teta_wot::http::PathParams`) gives the values, percent-decoded. A value that isn't valid UTF-8 once decoded is a `400`.
+  - The most specific route answers: a literal segment beats a parameter, which beats a wildcard. Endpoints whose paths differ only in parameter names fail the server's build with `RouteError::EndpointConflict`.
+  - A malformed parameter fails the runtime's build. Examples: `{name}_suffix`, which isn't a whole segment; a wildcard that isn't last; a name used twice.
+  - OpenAPI lists the parameters (`in: path`).
+  - A new example: `path-parameters`.
 - **Linux support.** `teta-wot` builds, tests and runs on Linux x86_64. CI runs every job on Ubuntu 24.04 as well as Windows.
 - **`shutdown_signal` handles Unix signals.** On Linux it completes on `SIGINT` (Ctrl-C), `SIGTERM` (`kill`, or systemd stopping a service) and `SIGHUP` (the terminal closing), so a server stops gracefully in each case. It used to handle only Ctrl-C there, and a `SIGTERM` ended the process at once.
 - **The soak test runs on Linux.** It reads the server's memory and open file descriptors from `/proc`, and `--server` defaults to the platform's executable name.
