@@ -1099,6 +1099,7 @@ impl ThingHandle {
                     if let Some(media_type) = &link.media_type {
                         entry = entry.with_media_type(media_type);
                     }
+                    entry.extra.extend(link.members.clone());
                     td = td.link(entry);
                 }
             }

@@ -172,6 +172,13 @@ pub fn derive_thing(input: TokenStream) -> TokenStream {
 ///   `impl IntoResponse`, which in edition 2024 would borrow `&self`.
 ///   `rel = "related"` (and optionally `media_type = "text/csv"`) lists it
 ///   in the TD's `links`.
+/// - `#[binary_stream]` or `#[binary_stream("path")]`: a binary stream, a
+///   WebSocket of binary messages at `/{thing}/{path}`.
+///   - The method runs once for each connection. It takes the connection's
+///     `Subscriber<P>`, where `P` is the parameters the client sends as
+///     JSON, and returns `()`.
+///   - It is linked from the TD, with `P`'s schema.
+///   - See `teta_wot::http::Subscriber`.
 /// - `#[on_start]`, `#[on_stop]`: lifecycle hooks, taking `&self` and
 ///   optionally a `ThingCtx`.
 /// - `#[thing_state]`: a synchronous `&self` method returning a

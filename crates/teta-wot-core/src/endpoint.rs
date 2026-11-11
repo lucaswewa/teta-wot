@@ -82,7 +82,19 @@ impl<T> EndpointSpec<T> {
         self.link = Some(EndpointLink {
             rel: rel.into(),
             media_type: media_type.map(str::to_owned),
+            members: serde_json::Map::new(),
         });
+        self
+    }
+
+    /// Adds a member to the endpoint's TD link, such as a binary stream's
+    /// `subprotocol`. It does nothing unless [`link`](Self::link) was called
+    /// first.
+    #[must_use]
+    pub fn link_member(mut self, name: impl Into<String>, value: serde_json::Value) -> Self {
+        if let Some(link) = &mut self.link {
+            link.members.insert(name.into(), value);
+        }
         self
     }
 }
@@ -94,6 +106,8 @@ pub struct EndpointLink {
     pub rel: String,
     /// The media type of what it returns, if given.
     pub media_type: Option<String>,
+    /// Other members of the link.
+    pub members: serde_json::Map<String, serde_json::Value>,
 }
 
 /// An endpoint of a running Thing.
