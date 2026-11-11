@@ -36,7 +36,7 @@ pub(crate) type EndpointService = BoxCloneSyncService<Request, Response, Infalli
 /// }
 /// ```
 pub struct Endpoint<T> {
-    spec: EndpointSpec<T>,
+    pub(crate) spec: EndpointSpec<T>,
 }
 
 impl<T: Send + Sync + 'static> Endpoint<T> {

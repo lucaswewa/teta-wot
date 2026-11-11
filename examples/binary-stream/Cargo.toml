@@ -1,0 +1,20 @@
+[package]
+name = "binary-stream"
+description = "Example: a binary WebSocket stream, with parameters for each client, and its throughput."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+schemars.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["connect"] }
+teta-wot.workspace = true
+
+[lints]
+workspace = true

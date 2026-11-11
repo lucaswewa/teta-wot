@@ -17,13 +17,14 @@ use crate::common::{
 };
 
 /// The attributes that give a method a role.
-const ROLES: [&str; 9] = [
+const ROLES: [&str; 10] = [
     "action",
     "property",
     "setting",
     "setter",
     "resetter",
     "endpoint",
+    "binary_stream",
     "on_start",
     "on_stop",
     "thing_state",
@@ -74,6 +75,8 @@ struct Endpoint {
     /// The TD link's relation type and media type, if the endpoint is linked.
     rel: Option<LitStr>,
     media_type: Option<LitStr>,
+    /// A binary stream (`#[binary_stream]`) rather than a plain endpoint.
+    binary: bool,
 }
 
 pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream> {
@@ -171,6 +174,7 @@ pub fn expand(args: TokenStream, mut item: ItemImpl) -> syn::Result<TokenStream>
                 accessors.push((target, role_name == "setter", accessor));
             }),
             "endpoint" => parse_endpoint(role, seen).map(|e| endpoints.push(e)),
+            "binary_stream" => parse_binary_stream(role, seen).map(|e| endpoints.push(e)),
             "on_start" | "on_stop" => check_hook(&role_name, &seen).map(|()| {
                 let slot = if role_name == "on_start" {
                     &mut on_start
@@ -607,6 +611,32 @@ fn parse_endpoint(attr: &Attribute, method: ImplItemFn) -> syn::Result<Endpoint>
         path,
         rel,
         media_type,
+        binary: false,
+    })
+}
+
+/// `#[binary_stream]` or `#[binary_stream("path")]`: a method that takes
+/// the connection's `Subscriber`.
+fn parse_binary_stream(attr: &Attribute, method: ImplItemFn) -> syn::Result<Endpoint> {
+    let path = match &attr.meta {
+        syn::Meta::Path(_) => None,
+        _ => Some(attr.parse_args::<LitStr>()?),
+    };
+    check_method(&method, "binary stream", None)?;
+    if typed_params(&method).count() != 1 {
+        return Err(error(
+            method.sig.ident.span(),
+            "a binary stream takes one parameter: the connection's `Subscriber<P>`",
+        ));
+    }
+    let path = path.map_or_else(|| method.sig.ident.to_string(), |p| p.value());
+    Ok(Endpoint {
+        method,
+        http_method: "GET".to_owned(),
+        path,
+        rel: None,
+        media_type: None,
+        binary: true,
     })
 }
 
@@ -966,6 +996,17 @@ fn endpoint_tokens(endpoint: &Endpoint) -> TokenStream {
         .collect();
     let types = typed_params(&endpoint.method).map(|t| &t.ty);
     let description = docstring(&endpoint.method.attrs).map(|d| quote!(.description(#d)));
+    if endpoint.binary {
+        let subscriber = typed_params(&endpoint.method).next().map(|t| &t.ty);
+        return quote! {
+            .endpoint(::teta_wot::http::Endpoint::binary_stream(
+                #path,
+                |__thing: ::std::sync::Arc<Self>, __subscriber: #subscriber| async move {
+                    __thing.#method(__subscriber).await
+                },
+            ) .name(#name) #description)
+        };
+    }
     let link = endpoint.rel.as_ref().map(|rel| {
         let media_type = match &endpoint.media_type {
             Some(media_type) => quote!(::core::option::Option::Some(#media_type)),

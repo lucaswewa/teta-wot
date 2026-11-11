@@ -19,7 +19,7 @@
 - [Documentation](documentation.md)
 - [Thing slots](thing_slots.md)
 - [Settings](settings.md)
-- [Blobs and MJPEG streams](blobs.md)
+- [Blobs, MJPEG and binary streams](blobs.md)
 - [Arrays](arrays.md)
 - [Concurrency and hardware](concurrency.md)
 - [Using Things](using_things.md)

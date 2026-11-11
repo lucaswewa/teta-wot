@@ -80,7 +80,9 @@ pub mod server {
 /// `axum` whose extractors and responses they use.
 pub mod http {
     pub use teta_wot_http::axum;
-    pub use teta_wot_http::{Endpoint, PathParams, ShutdownToken};
+    pub use teta_wot_http::{
+        BINARY_STREAM_MEDIA_TYPE, Endpoint, PathParams, ShutdownToken, Subscriber,
+    };
 }
 
 /// Helpers for tests: running action code in a fake invocation, and an

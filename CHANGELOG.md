@@ -6,6 +6,15 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Added
 
+- **Binary streams.** `#[binary_stream]` methods, or `Endpoint::binary_stream`, make a WebSocket of binary messages for each client.
+  - **The producer** runs for each connection with a `Subscriber<P>`.
+  - **Parameters.** The client sends its parameters as JSON, which are deserialised into `P`; bad ones are answered with `{"error": …}`.
+  - **Sending.** `send` never waits. A message the client hasn't taken is replaced by the next and counted as dropped, so a slow client gets the newest message and holds up no one.
+  - **The end.** Streams end when the client closes or the server shuts down.
+  - **The TD** links each stream, with its `subprotocol` (`websocket`), media type and parameter schema.
+  - **A new example: `binary-stream`.** It streams 1 MB at 60 Hz to four clients: about 63 MB/s each, with nothing dropped, on a Windows laptop.
+- **`EndpointSpec::link_member`** adds a member to an endpoint's TD link.
+
 - **Your own routes and layers.**
   - `ThingServerBuilder::merge` adds an application's axum routes in front of the Things' routes. They get the server's credentials, CORS, layers and graceful shutdown.
   - `ThingServerBuilder::layer` adds a layer around every route.
@@ -32,6 +41,7 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Changed
 
+- **`EndpointLink` has a new public field, `members`,** for the link's other members. Code that builds an `EndpointLink` with a struct literal must add `members: Default::default()`; `EndpointSpec::link` sets it.
 - **HTTP/2 everywhere.** `axum` is built with HTTP/2, so `serve` and `serve_with` also accept HTTP/2 without TLS ("h2c"), from clients that use it. The `h2` crate is now a dependency.
 - **The licence is stated:** the workspace's crates declare `license = "MIT"`, matching `LICENSE`. The guide no longer says there is no licence.
 - **`rust-toolchain.toml` no longer pins a target,** so each platform builds for itself.
