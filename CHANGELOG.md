@@ -6,6 +6,15 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Added
 
+- **Pluggable authentication and authorisation.**
+  - **An `Authenticator`** says who sent a request, as a `Principal` (an id and attributes), or refuses it with a `Rejection`: `401` with a challenge, or `403`.
+  - **An `Authorizer`** says whether a principal may make a request, from its `Access`: the Thing, the affordance, the `Operation`, and whether it changes state.
+  - **Setting them up:** `ThingServerBuilder::authenticator` and `authorizer`, or `HttpOptions::auth`. Either may be left out. `Security` (Basic or bearer) is an authenticator too, so existing servers are unchanged. The TDs describe the authenticator's `security_scheme`.
+  - **Every request is checked:** properties, actions, observation, streams, Blobs, custom endpoints and merged routes. TDs, discovery and the docs stay public.
+  - **Who is calling.** `Principal::current()` gives the caller to the code a request runs: getters, setters, actions (also as `ActionCtx::principal`), endpoints, merged routes and binary-stream producers (also as `Subscriber::principal`).
+  - **WebSockets authenticate with their first message,** `{"authorization": "…"}`, when their upgrade request has no `Authorization` header, as browsers can't add one. A failure, or no message within 10 seconds, closes the socket with 1008. This covers the observation WebSocket and binary streams. A custom endpoint marked with `EndpointSpec::websocket` can do the same with `teta_wot::http::FirstMessageAuth`.
+  - **A new example: `custom-auth`.** API keys for operators and viewers, and a logbook that signs its entries.
+
 - **Binary streams.** `#[binary_stream]` methods, or `Endpoint::binary_stream`, make a WebSocket of binary messages for each client.
   - **The producer** runs for each connection with a `Subscriber<P>`.
   - **Parameters.** The client sends its parameters as JSON, which are deserialised into `P`; bad ones are answered with `{"error": …}`.
@@ -40,6 +49,9 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 - **The soak test runs on Linux.** It reads the server's memory and open file descriptors from `/proc`, and `--server` defaults to the platform's executable name.
 
 ### Changed
+
+- **`HttpOptions` has a new public field, `auth`.** Code that builds `HttpOptions` with a struct literal must add `auth: Default::default()`, or end with `..Default::default()`.
+- **WebSocket upgrades without credentials,** on a server that requires them, are no longer refused with `401`. The observation WebSocket and binary streams accept them, then wait for the credentials in the first message.
 
 - **`EndpointLink` has a new public field, `members`,** for the link's other members. Code that builds an `EndpointLink` with a struct literal must add `members: Default::default()`; `EndpointSpec::link` sets it.
 - **HTTP/2 everywhere.** `axum` is built with HTTP/2, so `serve` and `serve_with` also accept HTTP/2 without TLS ("h2c"), from clients that use it. The `h2` crate is now a dependency.

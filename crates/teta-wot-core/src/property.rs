@@ -594,16 +594,17 @@ impl<T: Send + Sync + 'static, V: PropValue> SettingAccess for FunctionalSetting
 }
 
 /// Runs blocking property code on tokio's blocking pool, in the caller's
-/// span and invocation scope. A panic resumes in the caller.
+/// span, invocation scope and principal. A panic resumes in the caller.
 async fn run_blocking<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     let span = tracing::Span::current();
     let scope = InvocationScope::current();
+    let principal = crate::Principal::current();
     tokio::task::spawn_blocking(move || {
         let _entered = span.enter();
-        match scope {
+        principal.sync_scope(|| match scope {
             Some(scope) => scope.run_blocking(f),
             None => f(),
-        }
+        })
     })
     .await
     .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))

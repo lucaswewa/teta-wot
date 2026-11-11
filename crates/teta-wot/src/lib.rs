@@ -53,6 +53,7 @@ pub use ndarray;
 
 /// The HTTP server and binding.
 pub mod server {
+    pub use teta_wot_http::{Access, Auth, Authenticator, Authorizer, Operation, Rejection};
     pub use teta_wot_http::{
         DOCS_OFFLINE, FallbackPage, HTTP_BASIC_PROFILE, HTTP_SSE_PROFILE, HttpOptions,
         PROBLEM_TYPES_URL, REDOC_VERSION, RESERVED_THING_NAMES, RouteError, SWAGGER_UI_VERSION,
@@ -81,7 +82,7 @@ pub mod server {
 pub mod http {
     pub use teta_wot_http::axum;
     pub use teta_wot_http::{
-        BINARY_STREAM_MEDIA_TYPE, Endpoint, PathParams, ShutdownToken, Subscriber,
+        BINARY_STREAM_MEDIA_TYPE, Endpoint, FirstMessageAuth, PathParams, ShutdownToken, Subscriber,
     };
 }
 

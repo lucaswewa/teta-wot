@@ -23,6 +23,7 @@ use crate::action::ActionError;
 use crate::cancel::{CancelToken, Cancelled};
 use crate::lock::{GlobalLock, GlobalLockBusy, GlobalLockGuard};
 use crate::logs::{LogBuffer, LogRecord};
+use crate::principal::Principal;
 use crate::server::Server;
 
 tokio::task_local! {
@@ -36,6 +37,7 @@ pub struct InvocationScope {
     lock_owner: Uuid,
     cancel: CancelToken,
     logs: Arc<LogBuffer>,
+    principal: Principal,
 }
 
 impl InvocationScope {
@@ -44,12 +46,14 @@ impl InvocationScope {
         lock_owner: Uuid,
         cancel: CancelToken,
         logs: Arc<LogBuffer>,
+        principal: Principal,
     ) -> Self {
         Self {
             id,
             lock_owner,
             cancel,
             logs,
+            principal,
         }
     }
 
@@ -57,7 +61,13 @@ impl InvocationScope {
     /// in tests.
     pub fn fake() -> Self {
         let id = Uuid::new_v4();
-        Self::new(id, id, CancelToken::new(), LogBuffer::register(id))
+        Self::new(
+            id,
+            id,
+            CancelToken::new(),
+            LogBuffer::register(id),
+            Principal::anonymous(),
+        )
     }
 
     /// The scope of the code that is running, if it is part of an invocation.
@@ -79,6 +89,11 @@ impl InvocationScope {
     /// The invocation's cancel token.
     pub fn cancel_token(&self) -> &CancelToken {
         &self.cancel
+    }
+
+    /// Who the invocation runs for: the principal of the request that started it.
+    pub fn principal(&self) -> &Principal {
+        &self.principal
     }
 
     /// The invocation's log so far.
@@ -106,6 +121,7 @@ impl InvocationScope {
             self.lock_owner,
             CancelToken::new(),
             LogBuffer::register(id),
+            self.principal.clone(),
         )
     }
 }
@@ -189,6 +205,12 @@ impl ActionCtx {
     /// below (for example a device closure receives it directly).
     pub fn cancel_token(&self) -> &CancelToken {
         &self.scope.cancel
+    }
+
+    /// Who the invocation runs for: the principal of the request that
+    /// started it, or anonymous.
+    pub fn principal(&self) -> &Principal {
+        &self.scope.principal
     }
 
     /// Sleeps, returning early with `Err(Cancelled)` if the invocation is

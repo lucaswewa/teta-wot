@@ -23,6 +23,7 @@ pub struct EndpointSpec<T> {
     pub(crate) description: Option<String>,
     pub(crate) link: Option<EndpointLink>,
     pub(crate) name: Option<String>,
+    pub(crate) websocket: bool,
     pub(crate) build: BuildFn<T>,
 }
 
@@ -54,6 +55,7 @@ impl<T> EndpointSpec<T> {
             description: None,
             link: None,
             name: None,
+            websocket: false,
             build: Box::new(build),
         }
     }
@@ -84,6 +86,17 @@ impl<T> EndpointSpec<T> {
             media_type: media_type.map(str::to_owned),
             members: serde_json::Map::new(),
         });
+        self
+    }
+
+    /// Marks the endpoint as a WebSocket that, when its upgrade request
+    /// carries no credentials, authenticates with its first message.
+    /// Browsers can't add headers to WebSockets. The handler must then do
+    /// that check itself, with `teta_wot::http::FirstMessageAuth`; binary
+    /// streams do.
+    #[must_use]
+    pub fn websocket(mut self) -> Self {
+        self.websocket = true;
         self
     }
 
@@ -118,6 +131,7 @@ pub struct EndpointEntry {
     pub(crate) description: Option<String>,
     pub(crate) link: Option<EndpointLink>,
     pub(crate) name: Option<String>,
+    pub(crate) websocket: bool,
     pub(crate) handler: EndpointHandler,
 }
 
@@ -155,6 +169,11 @@ impl EndpointEntry {
     /// How it is listed in the TD's `links`, if it is.
     pub fn link(&self) -> Option<&EndpointLink> {
         self.link.as_ref()
+    }
+
+    /// Whether it is a WebSocket that authenticates its first message.
+    pub fn is_websocket(&self) -> bool {
+        self.websocket
     }
 
     /// The handler, for the HTTP binding to downcast.

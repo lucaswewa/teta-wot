@@ -1,0 +1,16 @@
+[package]
+name = "custom-auth"
+description = "Example: the application's own authentication and authorisation, and code that knows who is calling."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+teta-wot = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

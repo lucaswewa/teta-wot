@@ -56,7 +56,10 @@ pub use config::{
 #[cfg(feature = "mdns")]
 pub use mdns::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 pub use registry::{ThingRegistry, normalise as normalise_class_name};
-pub use teta_wot_http::{Security, ShutdownToken, WireProfile};
+pub use teta_wot_http::{
+    Access, Auth, Authenticator, Authorizer, Operation, Rejection, Security, ShutdownToken,
+    WireProfile,
+};
 
 /// The default time to wait for requests and invocations to finish on shutdown.
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -238,6 +241,21 @@ impl ThingServerBuilder {
     pub fn api_info(mut self, title: impl Into<String>, version: impl Into<String>) -> Self {
         self.http.api_title = title.into();
         self.http.api_version = version.into();
+        self
+    }
+
+    /// Authenticates requests with the application's own authenticator, in
+    /// place of [`security`](Self::security). TDs, discovery and the docs
+    /// stay public.
+    pub fn authenticator(mut self, authenticator: impl Authenticator) -> Self {
+        self.http.auth = std::mem::take(&mut self.http.auth).authenticator(authenticator);
+        self
+    }
+
+    /// Authorises each request: what kind it is, for which Thing and
+    /// affordance, and whether it changes state. Refusals are `403`s.
+    pub fn authorizer(mut self, authorizer: impl Authorizer) -> Self {
+        self.http.auth = std::mem::take(&mut self.http.auth).authorizer(authorizer);
         self
     }
 

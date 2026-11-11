@@ -10,18 +10,19 @@ use serde_json::{Map, Value, json};
 use teta_wot_core::blob::BlobData;
 use teta_wot_core::invocation::{CancelError, InvocationStatus};
 use teta_wot_core::{
-    InvocationRecord, LocItem, MessageKind, ProblemDetails, PropertyError, Runtime, TdOptions,
-    ValidationIssue,
+    InvocationRecord, LocItem, MessageKind, Principal, ProblemDetails, PropertyError, Runtime,
+    TdOptions, ValidationIssue,
 };
 use tower::ServiceExt;
 use uuid::Uuid;
 
+use crate::auth::{self, Access, Checker, FirstMessageAuth, Operation, Rejection};
 use crate::endpoint::PathParams;
 use crate::problem::HttpError;
 use crate::render::{self, Urls, created, redirect};
 use crate::routes::{Endpoint, Found, Params, Route, Routes};
 use crate::{HTTP_BASIC_PROFILE, HTTP_SSE_PROFILE, HttpOptions, WireProfile, td_id};
-use crate::{discovery, docs, observe, output, security};
+use crate::{discovery, docs, observe, output};
 
 /// The largest request body read (64 MiB).
 const BODY_LIMIT: usize = 64 * 1024 * 1024;
@@ -32,35 +33,66 @@ pub(crate) struct App {
     pub(crate) options: HttpOptions,
     /// The OpenAPI document, serialised once: it doesn't change.
     pub(crate) openapi: bytes::Bytes,
+    /// Who may do what, if the server checks.
+    pub(crate) checker: Option<Checker>,
+}
+
+/// How a request was let in.
+pub(crate) enum Admission {
+    /// As this principal (anonymous without checks).
+    Principal(Principal),
+    /// A WebSocket without credentials, to authenticate its first message.
+    Deferred(FirstMessageAuth),
 }
 
 /// The one handler: looks the request up in the route table and answers.
 pub(crate) async fn dispatch(State(app): State<Arc<App>>, request: Request) -> Response {
-    let (parts, body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     // WebSocket upgrades aren't in the route table: like Starlette's
     // WebSocket routes, `/{thing}/ws` doesn't answer plain HTTP.
     if let Some(thing) = observe::websocket_thing(&app.runtime, &app.options.api_prefix, &parts) {
         drain(body).await;
-        if let Some(denied) = app.deny(&parts.headers) {
-            return denied;
-        }
+        let access = Access {
+            thing: Some(thing.name()),
+            affordance: None,
+            operation: Operation::Observe,
+            changes_state: false,
+        };
+        let admission = match app.admit(&parts, &access, true).await {
+            Ok(admission) => admission,
+            Err(refused) => return refused.response(app.options.profile),
+        };
         let urls = Urls::from_request(&parts, &app.options.api_prefix);
-        return observe::upgrade(Arc::clone(app.runtime.broker()), thing, urls, parts).await;
+        let broker = Arc::clone(app.runtime.broker());
+        return observe::upgrade(broker, thing, urls, parts, admission).await;
     }
     let head = parts.method == Method::HEAD;
     let urls = Urls::from_request(&parts, &app.options.api_prefix);
     let path = parts.uri.path().to_owned();
     let mut response = match app.routes.find(&parts.method, &path) {
+        Found::Route(route, params) if route.endpoint.is_public() => {
+            app.route(route, params, parts, body, urls).await
+        }
         Found::Route(route, params) => {
-            match app
-                .deny(&parts.headers)
-                .filter(|_| !route.endpoint.is_public())
-            {
-                Some(denied) => {
+            let websocket =
+                matches!(route.endpoint, Endpoint::Custom(i) if app.routes.custom[i].websocket);
+            let admitted = app
+                .admit(&parts, &app.access(route, &parts.method), websocket)
+                .await;
+            match admitted {
+                Err(refused) => {
                     drain(body).await;
-                    denied
+                    refused.response(app.options.profile)
                 }
-                None => app.route(route, params, parts, body, urls).await,
+                Ok(Admission::Principal(principal)) => {
+                    principal
+                        .scope(app.route(route, params, parts, body, urls))
+                        .await
+                }
+                Ok(Admission::Deferred(deferred)) => {
+                    parts.extensions.insert(deferred);
+                    app.route(route, params, parts, body, urls).await
+                }
             }
         }
         Found::WrongMethod(route) => {
@@ -132,11 +164,78 @@ impl App {
         error.response(self.options.profile)
     }
 
-    /// The 401 to send, if credentials are required and missing.
-    fn deny(&self, headers: &http::HeaderMap) -> Option<Response> {
-        let security = self.options.security.as_ref()?;
-        (!security::authorized(security, headers))
-            .then(|| security::unauthorized(security, self.options.profile))
+    /// Lets a request in, or refuses it (`401`, `403`). A WebSocket upgrade
+    /// to an endpoint that can authenticate its first message, sent without
+    /// credentials, is let in for that.
+    async fn admit(
+        &self,
+        parts: &http::request::Parts,
+        access: &Access<'_>,
+        websocket: bool,
+    ) -> Result<Admission, Rejection> {
+        let Some(checker) = &self.checker else {
+            return Ok(Admission::Principal(Principal::anonymous()));
+        };
+        let upgrade = parts
+            .headers
+            .get(http::header::UPGRADE)
+            .is_some_and(|v| v.as_bytes().eq_ignore_ascii_case(b"websocket"));
+        if websocket && upgrade && !parts.headers.contains_key(http::header::AUTHORIZATION) {
+            return Ok(Admission::Deferred(FirstMessageAuth::new(
+                checker, parts, access,
+            )));
+        }
+        checker.check(parts, access).await.map(Admission::Principal)
+    }
+
+    /// What a request to `route` asks to do, for an authoriser.
+    fn access<'a>(&'a self, route: &'a Route, method: &Method) -> Access<'a> {
+        use Operation as Op;
+        let (thing, affordance, operation, changes_state) = match &route.endpoint {
+            Endpoint::ReadProperty { thing, property } => {
+                (Some(thing), Some(property), Op::ReadProperty, false)
+            }
+            Endpoint::WriteProperty { thing, property }
+            | Endpoint::ResetProperty { thing, property } => {
+                (Some(thing), Some(property), Op::WriteProperty, true)
+            }
+            Endpoint::InvokeAction { thing, action } => {
+                (Some(thing), Some(action), Op::InvokeAction, true)
+            }
+            Endpoint::ListActionInvocations { thing, action } => {
+                (Some(thing), Some(action), Op::QueryAction, false)
+            }
+            Endpoint::ReadAllProperties { thing } => (Some(thing), None, Op::ReadProperty, false),
+            Endpoint::WriteMultipleProperties { thing } => {
+                (Some(thing), None, Op::WriteProperty, true)
+            }
+            Endpoint::QueryAllActions { thing } => (Some(thing), None, Op::QueryAction, false),
+            Endpoint::SubscribeAllEvents { thing } => (Some(thing), None, Op::Observe, false),
+            Endpoint::SubscribeEvent { thing, event } => {
+                (Some(thing), Some(event), Op::Observe, false)
+            }
+            Endpoint::Stream { thing, stream } | Endpoint::StreamViewer { thing, stream } => {
+                (Some(thing), Some(stream), Op::ReadStream, false)
+            }
+            Endpoint::CancelInvocation => (None, None, Op::CancelAction, true),
+            Endpoint::DownloadBlob => (None, None, Op::DownloadBlob, false),
+            Endpoint::Custom(index) => {
+                let custom = &self.routes.custom[*index];
+                let safe = auth::is_safe(method);
+                (Some(&custom.thing), Some(&custom.path), Op::Endpoint, !safe)
+            }
+            Endpoint::ListInvocations | Endpoint::GetInvocation | Endpoint::InvocationOutput => {
+                (None, None, Op::QueryAction, false)
+            }
+            // Public routes, never checked. Anything new counts as a change.
+            _ => (None, None, Op::QueryAction, true),
+        };
+        Access {
+            thing: thing.map(String::as_str),
+            affordance: affordance.map(String::as_str),
+            operation,
+            changes_state,
+        }
     }
 
     /// Answers a request that matched `route`.
@@ -740,7 +839,7 @@ pub(crate) fn served_td(
         } else {
             Vec::new()
         },
-        security: options.security.as_ref().map(security::scheme),
+        security: auth::security_scheme(options),
     };
     let td = handle
         .thing_description(&td_options)

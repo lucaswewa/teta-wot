@@ -202,11 +202,22 @@ pub const RESERVED_THING_NAMES: [&str; 7] = [
     "directory",
 ];
 
+/// A custom endpoint's Thing and path, and whether it is a WebSocket that
+/// authenticates its first message.
+#[derive(Debug, Clone)]
+pub(crate) struct Custom {
+    pub(crate) thing: String,
+    pub(crate) path: String,
+    pub(crate) websocket: bool,
+}
+
 #[derive(Default)]
 pub(crate) struct Routes {
     routes: Vec<Route>,
     /// The services of custom endpoints.
     pub(crate) services: Vec<EndpointService>,
+    /// Who each custom endpoint belongs to, for authorisation, in the same order.
+    pub(crate) custom: Vec<Custom>,
 }
 
 impl std::fmt::Debug for Routes {
@@ -410,6 +421,11 @@ impl Routes {
                         path: endpoint.path().to_owned(),
                     })?;
                 routes.services.push(service.clone());
+                routes.custom.push(Custom {
+                    thing: name.to_owned(),
+                    path: endpoint.path().to_owned(),
+                    websocket: endpoint.is_websocket(),
+                });
                 routes.add(&path, method, Endpoint::Custom(routes.services.len() - 1));
             }
             routes.add(

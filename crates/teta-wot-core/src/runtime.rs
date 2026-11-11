@@ -734,6 +734,7 @@ impl ThingHandle {
                 description: spec.description,
                 link: spec.link,
                 name: spec.name,
+                websocket: spec.websocket,
             });
         }
 
@@ -1249,7 +1250,13 @@ impl ActionEntry {
         let lock_owner = InvocationScope::current().map_or(id, |s| s.lock_owner());
         let cancel = CancelToken::new();
         let logs = LogBuffer::register(id);
-        let scope = InvocationScope::new(id, lock_owner, cancel.clone(), Arc::clone(&logs));
+        let scope = InvocationScope::new(
+            id,
+            lock_owner,
+            cancel.clone(),
+            Arc::clone(&logs),
+            crate::Principal::current(),
+        );
         let ctx = ActionCtx::new(
             scope.clone(),
             Arc::clone(&self.thing),
