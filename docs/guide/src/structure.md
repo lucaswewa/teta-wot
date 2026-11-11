@@ -55,8 +55,8 @@ Applications use the `teta-wot` crate. Behind it:
 
 | Crate | Contents |
 |---|---|
-| `wot-td` | The Thing Description model, JSON Schema to DataSchema conversion, validation |
-| `wot-core` | The runtime: Things, properties, actions, invocations, events, slots, settings, devices, Blobs, streams, arrays |
-| `wot-macros` | `#[derive(Thing)]`, `#[thing_impl]`, `#[wot::interface]` |
-| `wot-http` | The HTTP binding: routes, answers, observation, OpenAPI, discovery, security |
-| `wot-server` | The server: configuration, registry, command line, lifecycle, Windows service, test client |
+| `teta-wot-td` | The Thing Description model, JSON Schema to DataSchema conversion, validation |
+| `teta-wot-core` | The runtime: Things, properties, actions, invocations, events, slots, settings, devices, Blobs, streams, arrays |
+| `teta-wot-macros` | `#[derive(Thing)]`, `#[thing_impl]`, `#[teta_wot::interface]` |
+| `teta-wot-http` | The HTTP binding: routes, answers, observation, OpenAPI, discovery, security |
+| `teta-wot-server` | The server: configuration, registry, command line, lifecycle, Windows service, test client |

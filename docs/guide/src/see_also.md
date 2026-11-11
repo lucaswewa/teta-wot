@@ -14,4 +14,4 @@
 
 ## In the repository
 
-- [`CHANGELOG.md`](https://github.com/lucaswewa/wot/blob/main/CHANGELOG.md) and [`docs/releasing.md`](https://github.com/lucaswewa/wot/blob/main/docs/releasing.md): releases.
+- [`CHANGELOG.md`](https://github.com/lucaswewa/teta-wot/blob/main/CHANGELOG.md) and [`docs/releasing.md`](https://github.com/lucaswewa/teta-wot/blob/main/docs/releasing.md): releases.

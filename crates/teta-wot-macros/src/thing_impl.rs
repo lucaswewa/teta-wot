@@ -889,7 +889,7 @@ fn action_tokens(
         .iter()
         .filter(|a| a.path().is_ident("doc") && matches!(a.meta, Meta::NameValue(_)))
         .collect();
-    let doc_line = format!("Calls the `{name}` action in-process (see `wot::ThingRef`).");
+    let doc_line = format!("Calls the `{name}` action in-process (see `teta_wot::ThingRef`).");
     let docs = if docs.is_empty() {
         quote!(#[doc = #doc_line])
     } else {

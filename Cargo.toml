@@ -7,7 +7,9 @@ version = "0.1.0"
 edition = "2024"
 # The pinned toolchain is also the minimum supported version.
 rust-version = "1.98"
-# The project has no licence, so nothing is published.
+license = "MIT"
+repository = "https://github.com/lucaswewa/teta-wot"
+# Not published to crates.io: applications depend on the Git repository.
 publish = false
 
 [workspace.dependencies]

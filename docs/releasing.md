@@ -6,14 +6,14 @@ A release is a tag, `vX.Y.Z`, on `main`. Pushing it runs [`.github/workflows/rel
 
 Read `CHANGELOG.md`'s `Unreleased` section.
 
-- **Anything under *Removed*, or a breaking *Changed*,** needs a new minor version before 1.0 (`0.1.x` → `0.2.0`). Breaking means breaking any surface in [ADR-0061's table](adr/0061-versioning-and-stability.md#decision): the `wot` crate's API, the `labthings` wire profile, configuration files and the command line, TD `id`s, settings files, problem types, or the minimum Rust version.
+- **Anything under *Removed*, or a breaking *Changed*,** needs a new minor version before 1.0 (`0.1.x` → `0.2.0`). Breaking means breaking any of these surfaces: the `teta-wot` crate's API, the `labthings` wire profile, configuration files and the command line, TD `id`s, settings files, problem types, or the minimum Rust version.
 - **Otherwise,** only fixes mean a patch (`0.1.0` → `0.1.1`), and additions a minor version.
 
 ## 2. Prepare the branch
 
 1. **In `CHANGELOG.md`,** rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, and add a new, empty `## [Unreleased]` above it. Every entry says what changed for users. A breaking change says how to adapt.
 2. **Set `version = "X.Y.Z"`** in the root `Cargo.toml`'s `[workspace.package]`, then run `cargo check --workspace` to update `Cargo.lock`.
-3. **Merge to `main`**, and wait for CI to pass, both jobs: Rust with the client suites, and "Reference fixtures reproduce".
+3. **Merge to `main`**, and wait for CI to pass: the Rust job, on Windows and on Ubuntu.
 
 ## 3. Soak the release build
 

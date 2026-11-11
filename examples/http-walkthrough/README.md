@@ -2,7 +2,7 @@
 
 **Concept:** the whole HTTP API of a Thing: every route, status code and header a client meets, over a real socket.
 
-**Technologies:** `wot::server::ThingServer` on a `tokio` TCP listener, and `curl` in bash (`walkthrough.sh`) or PowerShell (`walkthrough.ps1`, using the `curl.exe` that ships with Windows).
+**Technologies:** `teta_wot::server::ThingServer` on a `tokio` TCP listener, and `curl` in bash (`walkthrough.sh`) or PowerShell (`walkthrough.ps1`, using the `curl.exe` that ships with Windows).
 
 ## Run it
 

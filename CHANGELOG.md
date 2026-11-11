@@ -4,6 +4,19 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+
+- **Linux support.** `teta-wot` builds, tests and runs on Linux x86_64. CI runs every job on Ubuntu 24.04 as well as Windows.
+- **`shutdown_signal` handles Unix signals.** On Linux it completes on `SIGINT` (Ctrl-C), `SIGTERM` (`kill`, or systemd stopping a service) and `SIGHUP` (the terminal closing), so a server stops gracefully in each case. It used to handle only Ctrl-C there, and a `SIGTERM` ended the process at once.
+- **The soak test runs on Linux.** It reads the server's memory and open file descriptors from `/proc`, and `--server` defaults to the platform's executable name.
+
+### Changed
+
+- **The licence is stated:** the workspace's crates declare `license = "MIT"`, matching `LICENSE`. The guide no longer says there is no licence.
+- **`rust-toolchain.toml` no longer pins a target,** so each platform builds for itself.
+- **`microscope-service`,** a Windows service, prints that it is Windows-only and exits on other systems, rather than failing to build.
+- **Documentation:** the guide covers Linux (installing, stopping a server), and uses the crate's current name, `teta-wot` (`teta_wot::` in code), and its repository's URL. `docs/releasing.md` no longer links to an ADR that isn't in the repository.
+
 ## [0.1.0] - 2026-10-03
 
 The first release. Everything below is new.
@@ -31,4 +44,4 @@ The first release. Everything below is new.
 - **The guide:** an mdBook guide.
 - **Hardening:** fuzzing of validation, the WebSocket parser and request bodies; a shutdown-under-load test; and the soak tool (`tools/soak`).
 
-[0.1.0]: https://github.com/lucaswewa/wot/releases/tag/v0.1.0
+[0.1.0]: https://github.com/lucaswewa/teta-wot/releases/tag/v0.1.0

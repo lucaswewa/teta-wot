@@ -11,7 +11,7 @@
 //!
 //! `T` is a Thing type (the slot holds a [`ThingRef<T>`], for in-process
 //! calls with validation and locking, or an interface, a
-//! `dyn Trait` declared with `#[wot::interface]` (the slot holds an
+//! `dyn Trait` declared with `#[teta_wot::interface]` (the slot holds an
 //! `Arc<dyn Trait>`, from any Thing that declares it provides the trait).
 //!
 //! Which Things fill a slot is decided by the slot's default, which the
@@ -30,7 +30,7 @@ use crate::thing::Thing;
 
 /// What a slot can hold: a Thing type, or an interface (`dyn Trait`).
 ///
-/// Every Thing type implements it. `#[wot::interface]` implements it for
+/// Every Thing type implements it. `#[teta_wot::interface]` implements it for
 /// `dyn Trait`.
 pub trait SlotTarget: 'static {
     /// What the slot gives access to.
@@ -55,7 +55,7 @@ impl<T: Thing> SlotTarget for T {
     }
 }
 
-/// Resolves an interface on a Thing: for `#[wot::interface]`'s
+/// Resolves an interface on a Thing: for `#[teta_wot::interface]`'s
 /// `SlotTarget` implementations.
 pub fn resolve_interface<I: ?Sized + 'static>(thing: &Arc<ThingHandle>) -> Option<Arc<I>> {
     ThingHandle::interface::<I>(thing)

@@ -21,8 +21,8 @@ And some of its own:
   - observation described in Thing Descriptions;
   - the W3C WoT Profile, as a [wire profile](wire_profiles.md);
   - [discovery](discovery.md) and [security](security.md).
-- **A Windows service.** A server can [run as a Windows service](windows_service.md) and stop gracefully with it.
-- **One binary.** A server is a single Windows executable, with no Python environment to install.
+- **A service.** A server can [run as a Windows service](windows_service.md), or under systemd on Linux, and stop gracefully with it.
+- **One binary.** A server is a single executable, with no Python environment to install.
 
 ## Where to start
 
@@ -32,4 +32,6 @@ And some of its own:
 
 ## Platform and licence
 
-`teta-wot` supports **Windows x86_64** only, and is built and tested there. It has no licence yet, so it isn't published to crates.io: use it from its Git repository ([Installing](tutorial/installing.md)).
+`teta-wot` supports **Windows** and **Linux** on x86_64. CI builds and tests it on Windows and on Ubuntu 24.04.
+
+It is under the [MIT licence](https://github.com/lucaswewa/teta-wot/blob/main/LICENSE). It isn't published to crates.io: use it from its Git repository ([Installing](tutorial/installing.md)).

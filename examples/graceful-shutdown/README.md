@@ -2,7 +2,7 @@
 
 **Concept:** stopping a server without leaving hardware in a bad state. A stop request cancels running actions cooperatively, gives them time to finish, then stops the Things and closes their devices, in reverse order of starting.
 
-**Technologies:** `ThingServer::serve_with` and `teta_wot::server::shutdown_signal` (Ctrl-C, Ctrl-Break, closing the console window, log-off and system shutdown on Windows, through `tokio::signal::windows`), `Device`, and `Thing::start`/`stop`.
+**Technologies:** `ThingServer::serve_with` and `teta_wot::server::shutdown_signal` (on Windows: Ctrl-C, Ctrl-Break, closing the console window, log-off and system shutdown, through `tokio::signal::windows`; on Linux: `SIGINT`, `SIGTERM` and `SIGHUP`, through `tokio::signal::unix`), `Device`, and `Thing::start`/`stop`.
 
 ## Run it
 

@@ -7,7 +7,7 @@
 
 One Thing is served in both, and the same requests go to each.
 
-**Technologies:** `ThingServerBuilder::wire_profile(WireProfile::Wot)` (or `"wire_profile": "wot"` in a configuration file); `#[action(synchronous)]`; `wot::testing::TestClient`.
+**Technologies:** `ThingServerBuilder::wire_profile(WireProfile::Wot)` (or `"wire_profile": "wot"` in a configuration file); `#[action(synchronous)]`; `teta_wot::testing::TestClient`.
 
 ## Run it
 

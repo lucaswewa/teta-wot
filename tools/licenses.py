@@ -1,7 +1,7 @@
 """Gather the licence texts of every crate compiled into the release binaries.
 
 A binary contains code from each of its dependencies, whose licences require
-their notices to travel with it (ADR-0062). This walks the dependency graph
+their notices to travel with it (docs/releasing.md). This walks the dependency graph
 of the given workspace packages for Windows x86_64, as Cargo resolves it:
 
 - normal dependencies only (not dev- or build-dependencies);
@@ -15,7 +15,7 @@ For each crate it writes the name, version, declared licence and source,
 then every licence, notice or copyright file in the package. Standard
 library only:
 
-    python tools/licenses.py simulated-microscope windows-service > THIRD_PARTY_LICENSES.txt
+    python tools/licenses.py simulated-microscope microscope-service > THIRD_PARTY_LICENSES.txt
 
 A summary of the licences found goes to standard error. It exits with an
 error if a crate declares no licence.
@@ -31,13 +31,13 @@ TARGET = "x86_64-pc-windows-msvc"
 LICENCE_FILES = ("LICENSE", "LICENCE", "COPYING", "NOTICE", "COPYRIGHT", "UNLICENSE")
 
 HEADER = """\
-Third-party licences of the wot-rs binaries
-===========================================
+Third-party licences of the teta-wot binaries
+=============================================
 
-wot-rs itself has no licence (see THIRD_PARTY_NOTICES.md). The binaries in
-this package contain code from the crates below, each under its own licence,
-whose text follows its entry. Material copied into the wot-rs sources is
-listed in THIRD_PARTY_NOTICES.md.
+teta-wot itself is under the MIT licence (LICENSE in the source archive). The
+binaries in this package contain code from the crates below, each under its
+own licence, whose text follows its entry. Material copied into the teta-wot
+sources is listed in THIRD_PARTY_NOTICES.md.
 """
 
 

@@ -4,6 +4,8 @@ description = "W3C WoT Thing Description 1.1 model, builders, JSON Schema to Dat
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 publish.workspace = true
 
 [features]

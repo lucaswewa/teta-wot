@@ -213,7 +213,7 @@ impl<T: Thing> ThingDefinition<T> {
     }
 
     /// Declares that this Thing provides the interface `I` (a `dyn Trait`
-    /// declared with `#[wot::interface]`), so that slots of that interface
+    /// declared with `#[teta_wot::interface]`), so that slots of that interface
     /// can connect to it. `cast` turns a [`ThingRef`] to the Thing into the
     /// interface: usually `|r| Arc::new(r)`, with the trait implemented for
     /// `ThingRef<Self>`.

@@ -36,7 +36,7 @@ and, in an async `main`:
 {{#include ../../../examples/quickstart-counter/src/main.rs:serve}}
 ```
 
-`shutdown_signal()` completes on Ctrl-C (and the other ways Windows asks a console program to stop), and the server then stops gracefully.
+`shutdown_signal()` completes on Ctrl-C, and on the other ways the system asks a program to stop: closing the console window, log-off or shutdown on Windows; `SIGTERM` or `SIGHUP` on Linux. The server then stops gracefully.
 
 ## Using it
 

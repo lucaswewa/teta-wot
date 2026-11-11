@@ -6,7 +6,7 @@ The plan called this example `windows-service`, but that name is also a crate on
 
 **Technologies:**
 
-- the `windows-service` feature, `wot::server::service` (`run_as_service`, `install`, `uninstall`);
+- the `windows-service` feature, `teta_wot::server::service` (`run_as_service`, `install`, `uninstall`);
 - `cli::serve_until` with the service's stop signal;
 - `tracing-subscriber` writing to a file;
 - PowerShell's `Start-Service` and `Stop-Service`.

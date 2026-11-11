@@ -19,7 +19,7 @@ Run any of them with `cargo run -p <name>`: most run a short demonstration in-pr
 | Deployment | [`graceful-shutdown`](https://github.com/lucaswewa/teta-wot/tree/main/examples/graceful-shutdown), [`microscope-service`](https://github.com/lucaswewa/teta-wot/tree/main/examples/microscope-service) |
 | Everything together | [`simulated-microscope`](https://github.com/lucaswewa/teta-wot/tree/main/examples/simulated-microscope) |
 
-The [catalogue](https://github.com/lucaswewa/wot/blob/main/examples/README.md) lists all of them.
+The [catalogue](https://github.com/lucaswewa/teta-wot/blob/main/examples/README.md) lists all of them.
 
 ## The simulated microscope
 

@@ -4,6 +4,8 @@ description = "teta-wot server: configuration, Thing-type registry, lifecycle an
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 publish.workspace = true
 
 [features]
