@@ -22,15 +22,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use axum::Extension;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use teta_wot_core::Principal;
 use teta_wot_td::DataSchema;
 use tokio::sync::{Notify, mpsc, watch};
 
+use crate::auth::FirstMessageAuth;
+use crate::handlers::Admission;
 use crate::{Endpoint, ShutdownToken};
 
 /// The media type of a binary stream's messages, in its TD link.
@@ -67,6 +71,7 @@ struct Shared {
 pub struct Subscriber<P> {
     params: watch::Receiver<P>,
     shared: Arc<Shared>,
+    principal: Principal,
 }
 
 impl<P: Clone> Subscriber<P> {
@@ -99,6 +104,11 @@ impl<P: Clone> Subscriber<P> {
         }
         self.shared.ready.notify_one();
         true
+    }
+
+    /// Who the client is: its request's principal, or its first message's.
+    pub fn principal(&self) -> &Principal {
+        &self.principal
     }
 
     /// How many messages the client has been sent.
@@ -139,12 +149,24 @@ impl<T: Send + Sync + 'static> Endpoint<T> {
         let parameters = DataSchema::for_type::<P>()
             .ok()
             .and_then(|schema| serde_json::to_value(schema).ok());
-        let endpoint = Endpoint::new("get", path, move |thing: Arc<T>| {
-            move |upgrade: WebSocketUpgrade, shutdown: ShutdownToken| {
+        let mut endpoint = Endpoint::new("get", path, move |thing: Arc<T>| {
+            move |upgrade: WebSocketUpgrade,
+                  shutdown: ShutdownToken,
+                  deferred: Option<Extension<FirstMessageAuth>>| {
                 let (thing, producer) = (Arc::clone(&thing), producer.clone());
-                async move { upgrade.on_upgrade(move |socket| serve(socket, thing, producer, shutdown)) }
+                // The request's principal, unless its first message is to say.
+                let admission = match deferred {
+                    Some(Extension(deferred)) => Admission::Deferred(deferred),
+                    None => Admission::Principal(Principal::current()),
+                };
+                async move {
+                    upgrade.on_upgrade(move |socket| {
+                        serve(socket, thing, producer, shutdown, admission)
+                    })
+                }
             }
         });
+        endpoint.spec = endpoint.spec.websocket();
         let endpoint = endpoint
             .link("alternate", Some(BINARY_STREAM_MEDIA_TYPE))
             .link_member("subprotocol", "websocket".into());
@@ -160,20 +182,34 @@ impl<T: Send + Sync + 'static> Endpoint<T> {
     }
 }
 
-/// Runs a connection: its producer, and the pump between it and the socket.
-async fn serve<T, P, F, Fut>(socket: WebSocket, thing: Arc<T>, producer: F, shutdown: ShutdownToken)
-where
+/// Runs a connection, once it is authenticated: its producer, as the
+/// client's principal, and the pump between it and the socket.
+async fn serve<T, P, F, Fut>(
+    mut socket: WebSocket,
+    thing: Arc<T>,
+    producer: F,
+    shutdown: ShutdownToken,
+    admission: Admission,
+) where
     P: DeserializeOwned + Default + Send + Sync + 'static,
     F: Fn(Arc<T>, Subscriber<P>) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
 {
+    let principal = match admission {
+        Admission::Principal(principal) => principal,
+        Admission::Deferred(deferred) => match deferred.authenticate(&mut socket).await {
+            Some(principal) => principal,
+            None => return,
+        },
+    };
     let (params, receiver) = watch::channel(P::default());
     let shared = Arc::new(Shared::default());
     let subscriber = Subscriber {
         params: receiver,
         shared: Arc::clone(&shared),
+        principal: principal.clone(),
     };
-    let mut task = tokio::spawn(producer(thing, subscriber));
+    let mut task = tokio::spawn(principal.scope(producer(thing, subscriber)));
     pump(socket, &shared, &params, &shutdown).await;
     shared.closed.send_replace(true);
     drop(params);
@@ -267,6 +303,7 @@ mod tests {
         let subscriber = Subscriber {
             params,
             shared: Arc::clone(&shared),
+            principal: Principal::anonymous(),
         };
         (subscriber, shared)
     }

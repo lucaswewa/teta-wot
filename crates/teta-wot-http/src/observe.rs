@@ -28,6 +28,8 @@ use axum::extract::FromRequestParts;
 use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
+
+use crate::handlers::Admission;
 use chrono::SecondsFormat;
 use http::header::{ACCEPT, UPGRADE};
 use http::request::Parts;
@@ -71,15 +73,26 @@ pub(crate) fn websocket_thing(
     runtime.thing(name).cloned()
 }
 
-/// Accepts the WebSocket upgrade and serves the connection.
+/// Accepts the WebSocket upgrade and serves the connection, once its first
+/// message has authenticated it if the admission was deferred.
 pub(crate) async fn upgrade(
     broker: Arc<MessageBroker>,
     thing: Arc<ThingHandle>,
     urls: Urls,
     mut parts: Parts,
+    admission: Admission,
 ) -> Response {
     match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-        Ok(upgrade) => upgrade.on_upgrade(move |socket| serve(socket, broker, thing, urls)),
+        Ok(upgrade) => upgrade.on_upgrade(move |mut socket| async move {
+            let principal = match admission {
+                Admission::Principal(principal) => principal,
+                Admission::Deferred(deferred) => match deferred.authenticate(&mut socket).await {
+                    Some(principal) => principal,
+                    None => return,
+                },
+            };
+            principal.scope(serve(socket, broker, thing, urls)).await;
+        }),
         Err(rejection) => rejection.into_response(),
     }
 }

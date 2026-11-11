@@ -481,6 +481,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "custom-auth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde_json",
+ "teta-wot",
+ "tokio",
+]
+
+[[package]]
 name = "custom-endpoint"
 version = "0.1.0"
 dependencies = [

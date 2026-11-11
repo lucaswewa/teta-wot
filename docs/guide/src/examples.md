@@ -1,6 +1,6 @@
 # Examples
 
-The repository's [`examples/`](https://github.com/lucaswewa/teta-wot/tree/main/examples) folder has 35 small crates, each teaching one concept with the public API only. Each has a README saying what it shows, how to run it, and what to look for. CI runs every one.
+The repository's [`examples/`](https://github.com/lucaswewa/teta-wot/tree/main/examples) folder has 39 small crates, each teaching one concept with the public API only. Each has a README saying what it shows, how to run it, and what to look for. CI runs every one.
 
 Run any of them with `cargo run -p <name>`: most run a short demonstration in-process and exit, and serve with `--serve`.
 
@@ -15,7 +15,7 @@ Run any of them with `cargo run -p <name>`: most run a short demonstration in-pr
 | Observation and events | [`observe-websocket`](https://github.com/lucaswewa/teta-wot/tree/main/examples/observe-websocket), [`sse-observe`](https://github.com/lucaswewa/teta-wot/tree/main/examples/sse-observe), [`events`](https://github.com/lucaswewa/teta-wot/tree/main/examples/events) |
 | Binary data | [`blob-camera`](https://github.com/lucaswewa/teta-wot/tree/main/examples/blob-camera), [`mjpeg-stream`](https://github.com/lucaswewa/teta-wot/tree/main/examples/mjpeg-stream), [`ndarray-property`](https://github.com/lucaswewa/teta-wot/tree/main/examples/ndarray-property) |
 | API documentation | [`openapi-export`](https://github.com/lucaswewa/teta-wot/tree/main/examples/openapi-export), [`docs-offline`](https://github.com/lucaswewa/teta-wot/tree/main/examples/docs-offline) |
-| The W3C Web of Things | [`strict-profile`](https://github.com/lucaswewa/teta-wot/tree/main/examples/strict-profile), [`discovery`](https://github.com/lucaswewa/teta-wot/tree/main/examples/discovery), [`node-wot-consumer`](https://github.com/lucaswewa/teta-wot/tree/main/examples/node-wot-consumer), [`bearer-security`](https://github.com/lucaswewa/teta-wot/tree/main/examples/bearer-security) |
+| The W3C Web of Things | [`strict-profile`](https://github.com/lucaswewa/teta-wot/tree/main/examples/strict-profile), [`discovery`](https://github.com/lucaswewa/teta-wot/tree/main/examples/discovery), [`node-wot-consumer`](https://github.com/lucaswewa/teta-wot/tree/main/examples/node-wot-consumer), [`bearer-security`](https://github.com/lucaswewa/teta-wot/tree/main/examples/bearer-security), [`custom-auth`](https://github.com/lucaswewa/teta-wot/tree/main/examples/custom-auth) |
 | Deployment | [`graceful-shutdown`](https://github.com/lucaswewa/teta-wot/tree/main/examples/graceful-shutdown), [`microscope-service`](https://github.com/lucaswewa/teta-wot/tree/main/examples/microscope-service) |
 | Everything together | [`simulated-microscope`](https://github.com/lucaswewa/teta-wot/tree/main/examples/simulated-microscope) |
 

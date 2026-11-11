@@ -2,17 +2,11 @@
 //! required by every interaction and described in the TDs. Descriptions
 //! (TDs, the directory, the OpenAPI document and the docs) stay public.
 
-use std::sync::Arc;
-
-use axum::extract::{Request, State};
-use axum::middleware::Next;
-use axum::response::Response;
-use http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
-use http::{HeaderMap, HeaderValue, StatusCode};
+use http::HeaderMap;
+use http::header::AUTHORIZATION;
 use teta_wot_td::{CredentialLocation, SecurityScheme};
 
-use crate::problem::HttpError;
-use crate::{Security, WireProfile};
+use crate::Security;
 
 /// The realm named in `WWW-Authenticate`.
 const REALM: &str = "teta-wot";
@@ -59,34 +53,13 @@ pub(crate) fn authorized(security: &Security, headers: &HeaderMap) -> bool {
     })
 }
 
-/// The credentials check, as a layer, for the application's merged routes,
-/// which don't go through the Things' dispatch.
-pub(crate) async fn guard(
-    State(state): State<Arc<(Security, WireProfile)>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    let (security, profile) = &*state;
-    if authorized(security, request.headers()) {
-        next.run(request).await
-    } else {
-        unauthorized(security, *profile)
-    }
-}
-
-/// 401, with the scheme in `WWW-Authenticate`. The body is FastAPI's for
-/// its security helpers in the `tetathing` profile.
-pub(crate) fn unauthorized(security: &Security, profile: WireProfile) -> Response {
-    let mut response = HttpError::Status(StatusCode::UNAUTHORIZED, "Not authenticated".to_owned())
-        .response(profile);
-    let challenge = match security {
+/// The `WWW-Authenticate` challenge of a `401`, for the scheme. (The `401`'s
+/// body is FastAPI's for its security helpers, in the `tetathing` profile.)
+pub(crate) fn challenge(security: &Security) -> String {
+    match security {
         Security::Basic { .. } => format!("Basic realm=\"{REALM}\", charset=\"UTF-8\""),
         Security::Bearer { .. } => format!("Bearer realm=\"{REALM}\""),
-    };
-    if let Ok(value) = HeaderValue::from_str(&challenge) {
-        response.headers_mut().insert(WWW_AUTHENTICATE, value);
     }
-    response
 }
 
 /// Compares without stopping at the first difference, so that the time
@@ -166,10 +139,11 @@ mod tests {
 
     #[test]
     fn a_401_challenges() {
-        let response = unauthorized(&Security::bearer("x"), WireProfile::Wot);
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let rejection = crate::Rejection::unauthorized(Some(challenge(&Security::bearer("x"))));
+        let response = rejection.response(crate::WireProfile::Wot);
+        assert_eq!(response.status(), http::StatusCode::UNAUTHORIZED);
         assert_eq!(
-            response.headers()[WWW_AUTHENTICATE],
+            response.headers()[http::header::WWW_AUTHENTICATE],
             "Bearer realm=\"teta-wot\""
         );
     }

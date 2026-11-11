@@ -33,6 +33,7 @@
 //! 400 validation errors, `application/problem+json`, and `ActionStatus`
 //! objects.
 
+mod auth;
 mod binary;
 mod cors;
 mod discovery;
@@ -55,6 +56,7 @@ use axum::Router;
 use teta_wot_core::Runtime;
 use uuid::Uuid;
 
+pub use auth::{Access, Auth, Authenticator, Authorizer, FirstMessageAuth, Operation, Rejection};
 pub use binary::{BINARY_STREAM_MEDIA_TYPE, Subscriber};
 pub use docs::{OFFLINE as DOCS_OFFLINE, REDOC_VERSION, SWAGGER_UI_VERSION};
 pub use endpoint::{Endpoint, PathParams};
@@ -92,6 +94,9 @@ pub struct HttpOptions {
     pub profile: WireProfile,
     /// The credentials every interaction requires, if any.
     pub security: Option<Security>,
+    /// Pluggable authentication and authorisation. Its authenticator, if
+    /// set, takes the place of `security`.
+    pub auth: Auth,
 }
 
 impl Default for HttpOptions {
@@ -103,6 +108,7 @@ impl Default for HttpOptions {
             api_version: "0.1.0".to_owned(),
             profile: WireProfile::default(),
             security: None,
+            auth: Auth::default(),
         }
     }
 }
@@ -272,16 +278,15 @@ pub fn router_with(
         .into();
     // The Things' routes check credentials themselves, route by route; the
     // merged ones get the same check as a layer.
-    let merged = match options.security.clone() {
-        Some(security) => routes.layer(axum::middleware::from_fn_with_state(
-            Arc::new((security, options.profile)),
-            security::guard,
-        )),
+    let checker = auth::Checker::from_options(&options);
+    let merged = match checker.clone() {
+        Some(checker) => routes.layer(axum::middleware::from_fn_with_state(checker, auth::guard)),
         None => routes,
     };
     let app = Arc::new(handlers::App {
         runtime,
         routes: things,
+        checker,
         options,
         openapi,
     });

@@ -50,6 +50,7 @@ pub mod invocation;
 pub mod lock;
 pub mod logging;
 pub mod logs;
+mod principal;
 pub mod problem;
 pub mod property;
 mod reserved;
@@ -86,6 +87,7 @@ pub use invocation::{
 };
 pub use lock::{GlobalLock, GlobalLockBusy, GlobalLockGuard};
 pub use logs::LogRecord;
+pub use principal::Principal;
 pub use problem::ProblemDetails;
 pub use property::{
     DataProperty, FunctionalProperty, Prop, PropValue, PropertyEntry, PropertyError, PropertySpec,
