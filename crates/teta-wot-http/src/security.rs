@@ -2,6 +2,10 @@
 //! required by every interaction and described in the TDs. Descriptions
 //! (TDs, the directory, the OpenAPI document and the docs) stay public.
 
+use std::sync::Arc;
+
+use axum::extract::{Request, State};
+use axum::middleware::Next;
 use axum::response::Response;
 use http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
 use http::{HeaderMap, HeaderValue, StatusCode};
@@ -53,6 +57,21 @@ pub(crate) fn authorized(security: &Security, headers: &HeaderMap) -> bool {
         given_scheme.eq_ignore_ascii_case(scheme)
             && constant_time_eq(credentials.trim().as_bytes(), expected.as_bytes())
     })
+}
+
+/// The credentials check, as a layer, for the application's merged routes,
+/// which don't go through the Things' dispatch.
+pub(crate) async fn guard(
+    State(state): State<Arc<(Security, WireProfile)>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let (security, profile) = &*state;
+    if authorized(security, request.headers()) {
+        next.run(request).await
+    } else {
+        unauthorized(security, *profile)
+    }
 }
 
 /// 401, with the scheme in `WWW-Authenticate`. The body is FastAPI's for

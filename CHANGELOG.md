@@ -6,6 +6,19 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Added
 
+- **Your own routes and layers.**
+  - `ThingServerBuilder::merge` adds an application's axum routes in front of the Things' routes. They get the server's credentials, CORS, layers and graceful shutdown.
+  - `ThingServerBuilder::layer` adds a layer around every route.
+  - `teta_wot_http::router_with` does the same without the server.
+  - A new example: `custom-routes`.
+- **`ShutdownToken`.** An extractor, also returned by `shutdown_token()`, that completes when the server starts shutting down. Merged handlers that hold connections open, such as WebSockets, can end them rather than delay the shutdown.
+- **Custom listeners.** `ThingServer::serve_with_listener` serves on any `axum::serve::Listener`.
+- **TLS and HTTP/2** (feature `tls`).
+  - `teta_wot::server::tls` provides `server_config`, which takes a PEM certificate and key, and `TlsListener`, which completes TLS handshakes in parallel.
+  - It uses rustls with the `ring` provider.
+  - HTTP/2 is served to clients that negotiate it by ALPN.
+  - A new guide chapter: *Your own routes, layers and TLS*.
+
 - **Path parameters in custom endpoints.**
   - An endpoint's path can have parameters, as whole segments: `#[endpoint(get, "tiles/{level}/{tile}")]`. Its last segment can be a wildcard, `{*rest}`, for the rest of the path.
   - The new `PathParams` extractor (`teta_wot::http::PathParams`) gives the values, percent-decoded. A value that isn't valid UTF-8 once decoded is a `400`.
@@ -19,6 +32,7 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ### Changed
 
+- **HTTP/2 everywhere.** `axum` is built with HTTP/2, so `serve` and `serve_with` also accept HTTP/2 without TLS ("h2c"), from clients that use it. The `h2` crate is now a dependency.
 - **The licence is stated:** the workspace's crates declare `license = "MIT"`, matching `LICENSE`. The guide no longer says there is no licence.
 - **`rust-toolchain.toml` no longer pins a target,** so each platform builds for itself.
 - **`microscope-service`,** a Windows service, prints that it is Windows-only and exits on other systems, rather than failing to build.
