@@ -1,4 +1,4 @@
-//! Support for the code that `wot-macros` generates. Not a
+//! Support for the code that `teta-wot-macros` generates. Not a
 //! public API: it is exported as `wot_core::__private` for the macros, and
 //! may change at any time.
 

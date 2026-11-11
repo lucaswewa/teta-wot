@@ -6,11 +6,20 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Windows x86_64 is the only supported platform for now.
+# The supported platforms: Windows and Linux (Ubuntu), on x86_64. Every job
+# runs on both, and one failing doesn't cancel the other.
 jobs:
   rust:
-    name: Rust (Windows x86_64)
-    runs-on: windows-latest
+    name: Rust (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x86_64
+            os: windows-latest
+          - name: Ubuntu 24.04 x86_64
+            os: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # rustup reads rust-toolchain.toml and installs the pinned toolchain.

@@ -21,9 +21,9 @@ mod thing_impl;
 /// use the in-process action wrappers, with their validation and locking.
 ///
 /// ```ignore
-/// #[wot::interface]
+/// #[teta_wot::interface]
 /// pub trait CameraApi: Send + Sync {
-///     fn sharpness(&self) -> wot::BoxFuture<'_, Result<f64, ActionError>>;
+///     fn sharpness(&self) -> teta_wot::BoxFuture<'_, Result<f64, ActionError>>;
 /// }
 ///
 /// #[derive(Thing)]
@@ -31,7 +31,7 @@ mod thing_impl;
 /// pub struct SimCamera { /* … */ }
 ///
 /// impl CameraApi for ThingRef<SimCamera> {
-///     fn sharpness(&self) -> wot::BoxFuture<'_, Result<f64, ActionError>> {
+///     fn sharpness(&self) -> teta_wot::BoxFuture<'_, Result<f64, ActionError>> {
 ///         self.measure_sharpness() // a generated `SimCameraActions` method
 ///     }
 /// }
@@ -49,7 +49,7 @@ pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
 /// can be built from a typed configuration.
 ///
 /// ```ignore
-/// use wot::prelude::*;
+/// use teta_wot::prelude::*;
 ///
 /// /// A computer-controlled light, our first example Thing.
 /// #[derive(Thing)]
@@ -74,7 +74,7 @@ pub fn interface(args: TokenStream, input: TokenStream) -> TokenStream {
 ///   implements `Default`;
 /// - `semantic_type = "…"` (repeatable): the TD's `@type`;
 /// - `context(prefix = "iri", …)`: prefixes for the TD's `@context`;
-/// - `interfaces(Trait, …)`: the `#[wot::interface]` traits the Thing
+/// - `interfaces(Trait, …)`: the `#[teta_wot::interface]` traits the Thing
 ///   provides to slots, each implemented for `ThingRef<Self>`.
 ///
 /// **Fields.**

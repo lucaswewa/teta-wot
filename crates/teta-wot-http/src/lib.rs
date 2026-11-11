@@ -222,7 +222,7 @@ pub enum RouteError {
 }
 
 /// Builds the router for a runtime's Things. The runtime should be started
-/// (and stopped) separately, for example by `wot-server`.
+/// (and stopped) separately, for example by `teta-wot-server`.
 pub fn router(runtime: Arc<Runtime>, options: HttpOptions) -> Result<Router, RouteError> {
     let prefix_ok = options.api_prefix.is_empty()
         || options.api_prefix.split('/').skip(1).all(|segment| {

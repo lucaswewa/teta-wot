@@ -2,7 +2,7 @@
 
 **Concept:** HTTP routes of a Thing that aren't affordances: a file download, plain text, and a `POST` of raw text. They are served at `/{thing}/{path}` but aren't in the Thing Description.
 
-**Technologies:** `#[endpoint(get, "path")]` in `#[thing_impl]`; axum extractors (`Query`, `HeaderMap`, `String`) and responses (`Response`, `StatusCode`), through `wot::http::axum`.
+**Technologies:** `#[endpoint(get, "path")]` in `#[thing_impl]`; axum extractors (`Query`, `HeaderMap`, `String`) and responses (`Response`, `StatusCode`), through `teta_wot::http::axum`.
 
 ## Run it
 

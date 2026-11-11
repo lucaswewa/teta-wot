@@ -409,27 +409,37 @@ impl ThingServer {
     }
 }
 
-/// Completes when the process is asked to stop: Ctrl-C, Ctrl-Break, the
-/// console window closing, log-off or system shutdown on Windows; Ctrl-C
-/// elsewhere.
+/// Completes when the process is asked to stop:
+///
+/// - on Windows: Ctrl-C, Ctrl-Break, the console window closing, log-off or
+///   system shutdown;
+/// - on Linux and other Unix systems: `SIGINT` (Ctrl-C), `SIGTERM` (`kill`,
+///   or systemd stopping a service) or `SIGHUP` (the terminal closing);
+/// - elsewhere: Ctrl-C.
+///
+/// The handlers are installed when the future is first polled. From then on,
+/// these signals no longer end the process abruptly: they complete this
+/// future instead.
 pub async fn shutdown_signal() {
+    // Waits for a signal or console event, or forever if its handler
+    // couldn't be installed.
+    #[cfg(any(windows, unix))]
+    macro_rules! event {
+        ($install:expr) => {
+            async {
+                match $install {
+                    Ok(mut signal) => {
+                        signal.recv().await;
+                    }
+                    Err(_) => std::future::pending::<()>().await,
+                }
+            }
+        };
+    }
+
     #[cfg(windows)]
     {
         use tokio::signal::windows;
-
-        // Waits for a console event, or forever if its handler couldn't be installed.
-        macro_rules! event {
-            ($install:expr) => {
-                async {
-                    match $install {
-                        Ok(mut signal) => {
-                            signal.recv().await;
-                        }
-                        Err(_) => std::future::pending::<()>().await,
-                    }
-                }
-            };
-        }
 
         tokio::select! {
             () = event!(windows::ctrl_c()) => tracing::info!("received Ctrl-C"),
@@ -439,7 +449,17 @@ pub async fn shutdown_signal() {
             () = event!(windows::ctrl_shutdown()) => tracing::info!("the system is shutting down"),
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        tokio::select! {
+            () = event!(signal(SignalKind::interrupt())) => tracing::info!("received SIGINT (Ctrl-C)"),
+            () = event!(signal(SignalKind::terminate())) => tracing::info!("received SIGTERM"),
+            () = event!(signal(SignalKind::hangup())) => tracing::info!("received SIGHUP: the terminal closed"),
+        }
+    }
+    #[cfg(not(any(windows, unix)))]
     {
         let _ = tokio::signal::ctrl_c().await;
         tracing::info!("received Ctrl-C");

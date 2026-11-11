@@ -5,7 +5,7 @@
 //!
 //! So far it provides:
 //!
-//! - the runtime (re-exported from `wot-core`): Things defined with
+//! - the runtime (re-exported from `teta-wot-core`): Things defined with
 //!   [`ThingDefinition`], property cells ([`Prop`]), actions
 //!   ([`Action`]) with cancellation, invocations, the global lock, the
 //!   message broker and device actors ([`Device`]), all run by a

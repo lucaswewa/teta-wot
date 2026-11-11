@@ -1,6 +1,6 @@
 # Running a server
 
-LabThings runs servers from configuration files, with its command line: `labthings-server -c config.json`. A `teta-wot` application does the same. It registers the Thing types it provides, and hands the command line to `wot::server::cli`.
+LabThings runs servers from configuration files, with its command line: `labthings-server -c config.json`. A `teta-wot` application does the same. It registers the Thing types it provides, and hands the command line to `teta_wot::server::cli`.
 
 ## An application binary
 
@@ -13,7 +13,7 @@ The simulated microscope's `main` is a complete one:
 ```rust,ignore
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    wot::server::cli::serve_from_cli(&registry()).await
+    teta_wot::server::cli::serve_from_cli(&registry()).await
 }
 ```
 
@@ -71,4 +71,4 @@ With the microscope running (`cargo run -p simulated-microscope -- -c examples/s
 | `/camera/preview/viewer` | The camera's live preview |
 | `/.well-known/wot` | The server's Thing Description Directory ([Discovery](../discovery.md)) |
 
-Stop it with Ctrl-C. Running invocations are cancelled, the Things stop in reverse order, and their devices close.
+Stop it with Ctrl-C, or on Linux with `SIGTERM` (what `kill` and systemd send). Running invocations are cancelled, the Things stop in reverse order, and their devices close.

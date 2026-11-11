@@ -7,7 +7,7 @@ use syn::meta::ParseNestedMeta;
 use syn::spanned::Spanned;
 use syn::{Attribute, Expr, ExprLit, GenericArgument, Ident, Lit, Meta, PathArguments, Type};
 
-// The naming rules, shared with `wot-core`.
+// The naming rules, shared with `teta-wot-core`.
 include!("../../teta-wot-core/src/reserved.rs");
 
 /// Collects errors, to report several at once.

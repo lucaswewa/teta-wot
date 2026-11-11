@@ -1,5 +1,5 @@
 [toolchain]
 channel = "1.98.1"
 components = ["rustfmt", "clippy"]
-targets = ["x86_64-pc-windows-msvc"]
+# No `targets`: each machine builds for itself, Windows or Linux on x86_64.
 profile = "minimal"

@@ -6,6 +6,10 @@
 //! target/release/soak --server target/release/simulated-microscope.exe --duration 24h --report soak.csv
 //! ```
 //!
+//! `--server` defaults to `target/release/simulated-microscope`, with
+//! `.exe` on Windows. On Linux, memory comes from `/proc` rather than from
+//! PowerShell.
+//!
 //! The server runs as its own process, so that its memory is measured
 //! alone. The clients, all at once, on real sockets:
 //!
@@ -71,7 +75,10 @@ fn parse_duration(text: &str) -> anyhow::Result<Duration> {
 
 fn options() -> anyhow::Result<Options> {
     let mut options = Options {
-        server: PathBuf::from("target/release/simulated-microscope.exe"),
+        server: PathBuf::from(format!(
+            "target/release/simulated-microscope{}",
+            std::env::consts::EXE_SUFFIX
+        )),
         duration: Duration::from_secs(300),
         warmup: None,
         profile: "tetathing".into(),
@@ -502,18 +509,21 @@ async fn websocket(at: SocketAddr, stats: Arc<Stats>, running: Arc<AtomicBool>) 
 
 // ---- The server --------------------------------------------------------------
 
-/// The server's memory, from PowerShell.
+/// The server's memory: from PowerShell on Windows, from `/proc` on Linux.
 struct Memory {
-    /// The working set, in bytes: what is in RAM now. Windows trims it, so
-    /// it jumps.
+    /// The working set, in bytes: what is in RAM now (on Linux, the resident
+    /// set). Windows trims it, so it jumps.
     working_set: u64,
-    /// The private bytes: what the process has allocated. It only grows if
-    /// something is kept, so it is what the leak check looks at.
+    /// The private bytes: what the process has allocated (on Linux, its
+    /// anonymous resident memory). It only grows if something is kept, so
+    /// it is what the leak check looks at.
     private: u64,
-    /// The open handles (sockets, files, threads, events).
+    /// The open handles: sockets, files, threads, events (on Linux, file
+    /// descriptors).
     handles: u64,
 }
 
+#[cfg(windows)]
 fn memory(pid: u32) -> Option<Memory> {
     let output = std::process::Command::new("powershell")
         .args([
@@ -532,6 +542,32 @@ fn memory(pid: u32) -> Option<Memory> {
         private: numbers.next()?,
         handles: numbers.next()?,
     })
+}
+
+#[cfg(target_os = "linux")]
+fn memory(pid: u32) -> Option<Memory> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    // A line such as `VmRSS:     12345 kB`, in bytes.
+    let bytes = |field: &str| -> Option<u64> {
+        let line = status.lines().find(|line| line.starts_with(field))?;
+        let kib: u64 = line[field.len()..]
+            .split_whitespace()
+            .next()?
+            .parse()
+            .ok()?;
+        Some(kib * 1024)
+    };
+    let descriptors = std::fs::read_dir(format!("/proc/{pid}/fd")).ok()?.count();
+    Some(Memory {
+        working_set: bytes("VmRSS:")?,
+        private: bytes("RssAnon:")?,
+        handles: u64::try_from(descriptors).ok()?,
+    })
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn memory(_pid: u32) -> Option<Memory> {
+    None
 }
 
 fn percentile(sorted: &[Duration], p: f64) -> f64 {
