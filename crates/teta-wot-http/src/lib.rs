@@ -54,7 +54,7 @@ use teta_wot_core::Runtime;
 use uuid::Uuid;
 
 pub use docs::{OFFLINE as DOCS_OFFLINE, REDOC_VERSION, SWAGGER_UI_VERSION};
-pub use endpoint::Endpoint;
+pub use endpoint::{Endpoint, PathParams};
 pub use fallback::{FallbackPage, fallback_router};
 pub use openapi::{openapi, operation_id};
 pub use problem::{PROBLEM_TYPES_URL, problem_type};

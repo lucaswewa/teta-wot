@@ -71,11 +71,12 @@ pub mod server {
     pub use teta_wot_server::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 }
 
-/// Custom HTTP endpoints: [`Endpoint`](http::Endpoint), and the
-/// version of `axum` whose extractors and responses they use.
+/// Custom HTTP endpoints: [`Endpoint`](http::Endpoint), their path
+/// parameters ([`PathParams`](http::PathParams)), and the version of
+/// `axum` whose extractors and responses they use.
 pub mod http {
-    pub use teta_wot_http::Endpoint;
     pub use teta_wot_http::axum;
+    pub use teta_wot_http::{Endpoint, PathParams};
 }
 
 /// Helpers for tests: running action code in a fake invocation, and an

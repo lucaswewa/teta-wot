@@ -36,6 +36,10 @@ Other fields are private state, initialised with `#[thing(init = …)]` or their
 
 Methods go in a `#[thing_impl]` block: `#[action]`, functional `#[property]` getters (with `#[setter]` and `#[resetter]`), custom `#[endpoint]`s, and the lifecycle hooks `#[on_start]` and `#[on_stop]`.
 
+A custom endpoint's path can have parameters, as whole segments, such as `#[endpoint(get, "tiles/{level}/{tile}")]`. Its last segment can be a wildcard, `{*rest}`, for the rest of the path. The `PathParams` extractor (`teta_wot::http::PathParams`) gives the values, percent-decoded.
+
+When several endpoints match a request, the most specific answers: compared segment by segment, a literal beats a parameter, and a parameter beats a wildcard. Two endpoints whose paths differ only in their parameters' names can't be told apart, so the server refuses to build. The [`path-parameters`](https://github.com/lucaswewa/teta-wot/tree/main/examples/path-parameters) example shows each case.
+
 The macros are a front end: `ThingDefinition` builds the same thing by hand (the [`builder-thing`](https://github.com/lucaswewa/teta-wot/tree/main/examples/builder-thing) example), for generated or dynamic Things.
 
 ## Lifecycle

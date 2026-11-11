@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use teta_wot_core::{ActionEntry, PropertyEntry, Runtime, ThingHandle};
 use teta_wot_td::DataSchema;
 
-use crate::routes::RESERVED_THING_NAMES;
+use crate::routes::{RESERVED_THING_NAMES, Segment};
 use crate::{HttpOptions, Security, WireProfile};
 
 /// The content type of a successful MJPEG response.
@@ -683,7 +683,7 @@ impl Document {
     }
 
     /// A custom endpoint. Its extractors are axum's, which can't be
-    /// described, so only its description and success are.
+    /// described, so only its path parameters, description and success are.
     fn endpoint(&mut self, base: &str, endpoint: &teta_wot_core::EndpointEntry) {
         let mut response = json!({"description": "Successful Response"});
         if let Some(media_type) = endpoint.link().and_then(|l| l.media_type.as_deref()) {
@@ -696,8 +696,36 @@ impl Document {
         if let Some(description) = endpoint.description() {
             operation.insert("description".into(), json!(description));
         }
+        // OpenAPI writes every parameter as `{name}`, and has no wildcard:
+        // a wildcard's description says it can span segments.
+        let mut parameters = Vec::new();
+        let mut path_parameter = |name: &str, description: Option<&str>| {
+            let mut parameter = json!({
+                "name": name, "in": "path", "required": true, "schema": {"type": "string"},
+            });
+            if let Some(description) = description {
+                parameter["description"] = json!(description);
+            }
+            parameters.push(parameter);
+            format!("{{{name}}}")
+        };
+        let path: Vec<String> = endpoint
+            .path()
+            .split('/')
+            .map(|segment| match Segment::parse(segment) {
+                Segment::Literal(literal) => literal,
+                Segment::Param(name) => path_parameter(&name, None),
+                Segment::Wildcard(name) => path_parameter(
+                    &name,
+                    Some("The rest of the path: one or more segments, slashes included."),
+                ),
+            })
+            .collect();
+        if !parameters.is_empty() {
+            operation.insert("parameters".into(), Value::Array(parameters));
+        }
         self.operation(
-            &format!("{base}{}", endpoint.path()),
+            &format!("{base}{}", path.join("/")),
             endpoint.method(),
             endpoint.name(),
             operation,

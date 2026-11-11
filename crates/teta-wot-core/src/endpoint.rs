@@ -38,6 +38,11 @@ impl<T> fmt::Debug for EndpointSpec<T> {
 impl<T> EndpointSpec<T> {
     /// An endpoint answering `method` (upper case, such as `GET`) at
     /// `/{thing}/{path}`. `build` makes its handler for one Thing instance.
+    ///
+    /// The path may have parameters, whole segments such as
+    /// `tiles/{level}/{tile}`, and end with a wildcard, `files/{*rest}`,
+    /// which matches the rest of the path. A literal segment beats a
+    /// parameter, and a parameter beats a wildcard.
     pub fn new(
         method: impl Into<String>,
         path: impl Into<String>,
@@ -144,21 +149,94 @@ impl EndpointEntry {
     }
 }
 
-/// Why an endpoint path can't be used, if it can't: it must be relative
-/// (no leading `/`), with non-empty segments that aren't `.` or `..`.
+/// Why an endpoint path can't be used, if it can't. It must be relative (no
+/// leading `/`), with non-empty segments that aren't `.` or `..`. A segment
+/// may be a path parameter, `{name}`, and the last one a wildcard,
+/// `{*name}`. Names are letters, digits and `_`, not starting with a digit,
+/// and are used once.
 pub(crate) fn path_problem(path: &str) -> Option<String> {
     if path.is_empty() || path.starts_with('/') {
         return Some(format!(
             "endpoint path `{path}` must be relative to the Thing, without a leading `/`"
         ));
     }
-    if path
-        .split('/')
-        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-    {
-        return Some(format!(
-            "endpoint path `{path}` has an empty, `.` or `..` segment"
-        ));
+    let segments: Vec<&str> = path.split('/').collect();
+    let mut names = Vec::new();
+    for (index, segment) in segments.iter().enumerate() {
+        if segment.is_empty() || *segment == "." || *segment == ".." {
+            return Some(format!(
+                "endpoint path `{path}` has an empty, `.` or `..` segment"
+            ));
+        }
+        if !segment.contains(['{', '}']) {
+            continue;
+        }
+        let Some(inner) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) else {
+            return Some(format!(
+                "endpoint path `{path}`: a parameter must be a whole segment, \
+                 such as `{{name}}` or `{{*rest}}`, not `{segment}`"
+            ));
+        };
+        let (name, wildcard) = inner
+            .strip_prefix('*')
+            .map_or((inner, false), |name| (name, true));
+        let mut chars = name.chars();
+        let valid = chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            return Some(format!(
+                "endpoint path `{path}`: `{segment}` needs a name of letters, digits \
+                 and `_`, not starting with a digit"
+            ));
+        }
+        if wildcard && index + 1 != segments.len() {
+            return Some(format!(
+                "endpoint path `{path}`: the wildcard `{segment}` must be the last segment"
+            ));
+        }
+        if names.contains(&name) {
+            return Some(format!(
+                "endpoint path `{path}` uses the parameter `{name}` twice"
+            ));
+        }
+        names.push(name);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_problem;
+
+    #[test]
+    fn paths_with_parameters_and_a_final_wildcard_are_accepted() {
+        for path in [
+            "a.txt",
+            "tiles/{level}/{tile}",
+            "files/{*rest}",
+            "{_x1}/{*y}",
+        ] {
+            assert_eq!(path_problem(path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn malformed_paths_are_explained() {
+        for (path, problem) in [
+            ("/a", "leading `/`"),
+            ("a//b", "empty"),
+            ("a/../b", "`..`"),
+            ("{dataset}_files", "whole segment"),
+            ("a/{b", "whole segment"),
+            ("a/{}", "needs a name"),
+            ("a/{1st}", "needs a name"),
+            ("{*rest}/more", "last segment"),
+            ("{id}/{id}", "twice"),
+        ] {
+            let found = path_problem(path).unwrap_or_default();
+            assert!(found.contains(problem), "{path}: {found}");
+        }
+    }
 }
