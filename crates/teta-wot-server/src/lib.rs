@@ -18,20 +18,29 @@
 //! elsewhere). A Windows service (Phase 10) passes its own stop signal to
 //! [`ThingServer::serve_with`].
 
+use std::convert::Infallible;
+use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
+use axum::extract::Request;
+use axum::response::IntoResponse;
+use axum::routing::Route;
+use axum::serve::Listener;
 use teta_wot_core::{
     BuildError, FromConfig, Runtime, RuntimeBuilder, SlotSelection, StartupError, Thing,
 };
 use teta_wot_http::{HttpOptions, RouteError};
 use tokio::net::TcpListener;
+use tower::{Layer, Service};
 
 #[cfg(feature = "testing")]
 pub mod testing;
+#[cfg(feature = "tls")]
+pub mod tls;
 
 pub mod cli;
 mod config;
@@ -47,7 +56,7 @@ pub use config::{
 #[cfg(feature = "mdns")]
 pub use mdns::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 pub use registry::{ThingRegistry, normalise as normalise_class_name};
-pub use teta_wot_http::{Security, WireProfile};
+pub use teta_wot_http::{Security, ShutdownToken, WireProfile};
 
 /// The default time to wait for requests and invocations to finish on shutdown.
 pub const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -84,9 +93,58 @@ pub struct ThingServerBuilder {
     http: HttpOptions,
     grace: Duration,
     mdns: bool,
+    routes: Router,
+    wrap: Wrap,
+    shutdown: ShutdownToken,
+}
+
+/// The layers added with [`ThingServerBuilder::layer`], as one function.
+struct Wrap(Box<dyn FnOnce(Router) -> Router + Send>);
+
+impl Debug for Wrap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Wrap(..)")
+    }
 }
 
 impl ThingServerBuilder {
+    /// Merges the application's own routes into the server, in front of the
+    /// Things' routes.
+    ///
+    /// - A request whose path they match goes to them, whatever its method;
+    ///   every other request goes to the Things.
+    /// - They get the server's credentials check
+    ///   ([`security`](Self::security)), CORS, the layers added with
+    ///   [`layer`](Self::layer), and the graceful shutdown.
+    /// - A handler that holds a connection open watches the
+    ///   [`ShutdownToken`] (an extractor).
+    /// - They must not have a fallback.
+    pub fn merge(mut self, routes: Router) -> Self {
+        self.routes = self.routes.merge(routes);
+        self
+    }
+
+    /// Adds a layer around every route, the Things' and the merged ones,
+    /// inside CORS. A layer added later wraps the ones added before it.
+    pub fn layer<L>(mut self, layer: L) -> Self
+    where
+        L: Layer<Route> + Clone + Send + Sync + 'static,
+        L::Service: Service<Request> + Clone + Send + Sync + 'static,
+        <L::Service as Service<Request>>::Response: IntoResponse + 'static,
+        <L::Service as Service<Request>>::Error: Into<Infallible> + 'static,
+        <L::Service as Service<Request>>::Future: Send + 'static,
+    {
+        let inner = self.wrap.0;
+        self.wrap = Wrap(Box::new(move |all| inner(all).layer(layer)));
+        self
+    }
+
+    /// The token that completes when the server starts shutting down, for
+    /// merged routes to watch. Handlers can also take it as an extractor.
+    pub fn shutdown_token(&self) -> ShutdownToken {
+        self.shutdown.clone()
+    }
+
     /// Adds a Thing under `name`.
     pub fn thing<T: Thing>(mut self, name: impl Into<String>, thing: T) -> Self {
         self.runtime = self.runtime.thing(name, thing);
@@ -215,12 +273,19 @@ impl ThingServerBuilder {
     pub fn build(self) -> Result<ThingServer, ServerBuildError> {
         let runtime = Arc::new(self.runtime.build()?);
         let advertise = self.mdns.then(|| self.http.server_id.clone());
-        let router = teta_wot_http::router(Arc::clone(&runtime), self.http)?;
+        let router = teta_wot_http::router_with(
+            Arc::clone(&runtime),
+            self.http,
+            self.routes,
+            self.wrap.0,
+            self.shutdown.clone(),
+        )?;
         Ok(ThingServer {
             runtime,
             router,
             grace: self.grace,
             advertise,
+            shutdown: self.shutdown,
         })
     }
 }
@@ -232,6 +297,7 @@ pub struct ThingServer {
     grace: Duration,
     /// The DNS-SD instance name to advertise, if any.
     advertise: Option<String>,
+    shutdown: ShutdownToken,
 }
 
 impl std::fmt::Debug for ThingServer {
@@ -320,6 +386,9 @@ impl ThingServer {
             http: HttpOptions::default(),
             grace: DEFAULT_SHUTDOWN_GRACE,
             mdns: false,
+            routes: Router::new(),
+            wrap: Wrap(Box::new(|all| all)),
+            shutdown: ShutdownToken::new(),
         }
     }
 
@@ -344,6 +413,11 @@ impl ThingServer {
         self.serve_with(listener, shutdown_signal()).await
     }
 
+    /// The token that completes when the server starts shutting down.
+    pub fn shutdown_token(&self) -> ShutdownToken {
+        self.shutdown.clone()
+    }
+
     /// Starts the Things, serves on `listener` until `shutdown` completes,
     /// then shuts down (see the crate documentation).
     pub async fn serve_with(
@@ -351,23 +425,58 @@ impl ThingServer {
         listener: TcpListener,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServeError> {
+        let instance = self.advertise.clone();
+        self.serve_on(listener, shutdown, |listener| {
+            let location = listener.local_addr().map(|addr| format!("http://{addr}"));
+            (location.ok(), advertise(instance.as_deref(), listener))
+        })
+        .await
+    }
+
+    /// Like [`serve_with`](Self::serve_with), on any listener: for example a
+    /// `tls::TlsListener` (feature `tls`), which serves HTTPS, and HTTP/2 to
+    /// clients that negotiate it. The server isn't advertised over mDNS.
+    pub async fn serve_with_listener<L>(
+        self,
+        listener: L,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), ServeError>
+    where
+        L: Listener,
+        L::Addr: Debug,
+    {
+        self.serve_on(listener, shutdown, |listener| {
+            let location = listener.local_addr().map(|addr| format!("{addr:?}"));
+            (location.ok(), Advertised::default())
+        })
+        .await
+    }
+
+    /// Serves on `listener`; `describe` gives where, for the log, and the
+    /// DNS-SD advertisement to withdraw at the end.
+    async fn serve_on<L>(
+        self,
+        listener: L,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+        describe: impl FnOnce(&L) -> (Option<String>, Advertised),
+    ) -> Result<(), ServeError>
+    where
+        L: Listener,
+        L::Addr: Debug,
+    {
         if let Err(failure) = self.runtime.start().await {
             tracing::error!(thing = %failure.thing, "{failure}");
             return Err(failure.into());
         }
-        if let Ok(addr) = listener.local_addr() {
-            tracing::info!(
-                "serving {} Things on http://{addr}",
-                self.runtime.things().count()
-            );
+        let (location, advertisement) = describe(&listener);
+        if let Some(location) = location {
+            let things = self.runtime.things().count();
+            tracing::info!("serving {things} Things on {location}");
         }
-        let advertisement = advertise(self.advertise.as_deref(), &listener);
 
-        let (stop, stopped) = tokio::sync::watch::channel(false);
-        let serve = axum::serve(listener, self.router).with_graceful_shutdown(async move {
-            let mut stopped = stopped;
-            let _ = stopped.wait_for(|stop| *stop).await;
-        });
+        let stopping = self.shutdown.clone();
+        let serve = axum::serve(listener, self.router)
+            .with_graceful_shutdown(async move { stopping.cancelled().await });
         let mut server = tokio::spawn(serve.into_future());
 
         let result = tokio::select! {
@@ -386,9 +495,11 @@ impl ThingServer {
 
         tracing::info!("shutting down");
         withdraw(advertisement).await;
-        let _ = stop.send(true);
-        // Ends WebSocket and SSE streams, which would otherwise keep their
+        // Stops accepting connections, and tells merged handlers that hold
+        // connections open to end them. Closing the broker ends the Things'
+        // WebSocket and SSE streams. Otherwise both would keep their
         // connections open for the whole grace period.
+        self.shutdown.shut_down();
         self.runtime.broker().close();
         self.runtime.invocations().cancel_all();
         let drained = tokio::time::timeout(self.grace, async {

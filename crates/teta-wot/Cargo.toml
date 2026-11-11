@@ -26,6 +26,9 @@ ndarray = ["teta-wot-core/ndarray", "dep:ndarray"]
 ## Run a server as a Windows service, and install one
 ## (`teta_wot::server::service`). Windows only.
 windows-service = ["teta-wot-server/windows-service"]
+## Serve over TLS, with HTTP/2 for clients that negotiate it
+## (`teta_wot::server::tls`).
+tls = ["teta-wot-server/tls"]
 
 [dependencies]
 ndarray = { workspace = true, optional = true }

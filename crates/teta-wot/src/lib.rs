@@ -62,6 +62,9 @@ pub mod server {
     /// Running as a Windows service (feature `windows-service`).
     #[cfg(all(windows, feature = "windows-service"))]
     pub use teta_wot_server::service;
+    /// Serving over TLS, with HTTP/2 (feature `tls`).
+    #[cfg(feature = "tls")]
+    pub use teta_wot_server::tls;
     pub use teta_wot_server::{
         ConfigError, DEFAULT_SHUTDOWN_GRACE, RESERVED_CONFIG_THING_NAMES, SecurityConfig,
         ServeError, ServerBuildError, ServerConfig, ThingConfig, ThingRegistry, ThingServer,
@@ -71,12 +74,13 @@ pub mod server {
     pub use teta_wot_server::{DIRECTORY_SERVICE_TYPE, WOT_SERVICE_TYPE};
 }
 
-/// Custom HTTP endpoints: [`Endpoint`](http::Endpoint), their path
-/// parameters ([`PathParams`](http::PathParams)), and the version of
+/// Custom HTTP endpoints and routes: [`Endpoint`](http::Endpoint), their
+/// path parameters ([`PathParams`](http::PathParams)), the server's
+/// shutdown ([`ShutdownToken`](http::ShutdownToken)), and the version of
 /// `axum` whose extractors and responses they use.
 pub mod http {
     pub use teta_wot_http::axum;
-    pub use teta_wot_http::{Endpoint, PathParams};
+    pub use teta_wot_http::{Endpoint, PathParams, ShutdownToken};
 }
 
 /// Helpers for tests: running action code in a fake invocation, and an

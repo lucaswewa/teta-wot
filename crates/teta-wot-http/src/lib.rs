@@ -46,6 +46,7 @@ mod problem;
 mod render;
 mod routes;
 mod security;
+mod shutdown;
 
 use std::sync::Arc;
 
@@ -59,6 +60,7 @@ pub use fallback::{FallbackPage, fallback_router};
 pub use openapi::{openapi, operation_id};
 pub use problem::{PROBLEM_TYPES_URL, problem_type};
 pub use routes::RESERVED_THING_NAMES;
+pub use shutdown::ShutdownToken;
 
 /// The identifier of the W3C WoT HTTP Basic Profile, in the `profile` of
 /// TDs served in the `wot` profile.
@@ -224,6 +226,34 @@ pub enum RouteError {
 /// Builds the router for a runtime's Things. The runtime should be started
 /// (and stopped) separately, for example by `teta-wot-server`.
 pub fn router(runtime: Arc<Runtime>, options: HttpOptions) -> Result<Router, RouteError> {
+    router_with(
+        runtime,
+        options,
+        Router::new(),
+        |all| all,
+        ShutdownToken::new(),
+    )
+}
+
+/// Like [`router`], with the application's own routes and layers.
+///
+/// - **`routes`** are merged in front of the Things' routes. A request whose
+///   path they match goes to them, whatever its method, and every other
+///   request goes to the Things' routes. With
+///   [`security`](HttpOptions::security) set, they need the same
+///   credentials. They must not have a fallback.
+/// - **`wrap`** adds layers around every route, the Things' and the merged
+///   ones (`|all| all.layer(…)`).
+/// - **CORS** wraps everything.
+/// - **Every request carries `shutdown`,** for the [`ShutdownToken`]
+///   extractor.
+pub fn router_with(
+    runtime: Arc<Runtime>,
+    options: HttpOptions,
+    routes: Router,
+    wrap: impl FnOnce(Router) -> Router,
+    shutdown: ShutdownToken,
+) -> Result<Router, RouteError> {
     let prefix_ok = options.api_prefix.is_empty()
         || options.api_prefix.split('/').skip(1).all(|segment| {
             !segment.is_empty()
@@ -234,19 +264,31 @@ pub fn router(runtime: Arc<Runtime>, options: HttpOptions) -> Result<Router, Rou
     if !prefix_ok {
         return Err(RouteError::InvalidPrefix(options.api_prefix));
     }
-    let routes = routes::Routes::build(&runtime, &options.api_prefix)?;
+    let things = routes::Routes::build(&runtime, &options.api_prefix)?;
     let openapi = serde_json::to_vec(&openapi::openapi(&runtime, &options))
         .unwrap_or_default()
         .into();
+    // The Things' routes check credentials themselves, route by route; the
+    // merged ones get the same check as a layer.
+    let merged = match options.security.clone() {
+        Some(security) => routes.layer(axum::middleware::from_fn_with_state(
+            Arc::new((security, options.profile)),
+            security::guard,
+        )),
+        None => routes,
+    };
     let app = Arc::new(handlers::App {
         runtime,
-        routes,
+        routes: things,
         options,
         openapi,
     });
-    Ok(Router::new()
+    let all = Router::new()
         .fallback(handlers::dispatch)
         .with_state(app)
+        .merge(merged);
+    Ok(wrap(all)
+        .layer(axum::Extension(shutdown))
         .layer(axum::middleware::from_fn(cors::cors)))
 }
 

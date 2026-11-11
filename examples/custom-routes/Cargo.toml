@@ -1,0 +1,17 @@
+[package]
+name = "custom-routes"
+description = "Example: the application's own axum routes and layers in the same server as its Things."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tokio-tungstenite = { workspace = true, features = ["connect"] }
+teta-wot.workspace = true
+
+[lints]
+workspace = true

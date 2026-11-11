@@ -31,6 +31,7 @@
 - [Wire profiles](wire_profiles.md)
 - [Discovery](discovery.md)
 - [Security](security.md)
+- [Your own routes, layers and TLS](composition.md)
 - [Running as a Windows service](windows_service.md)
 
 # Reference

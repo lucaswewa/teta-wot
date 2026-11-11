@@ -21,13 +21,15 @@ teta-wot-server = { path = "crates/teta-wot-server" }
 teta-wot-td = { path = "crates/teta-wot-td" }
 
 anyhow = "1.0"
-axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "query", "tokio", "ws"] }
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "http2", "json", "query", "tokio", "ws"] }
 bytes = "1.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 clap = { version = "4.6", features = ["derive"] }
 futures-util = { version = "0.3.31", default-features = false, features = ["sink", "std"] }
 http = "1.5"
 http-body-util = "0.1.5"
+hyper = { version = "1.11.1", default-features = false }
+hyper-util = { version = "0.1.21", default-features = false }
 indexmap = { version = "2.14", features = ["serde"] }
 insta = { version = "1.48", features = ["json"] }
 jpeg-encoder = "0.7.1"
@@ -38,6 +40,7 @@ percent-encoding = "2.3"
 proc-macro2 = "1.0.107"
 proptest = "1.11"
 quote = "1.0.47"
+rcgen = "0.14.10"
 regex = "1.11"
 schemars = { version = "1.2", features = ["preserve_order", "indexmap2"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -47,6 +50,7 @@ syn = { version = "2.0.119", features = ["full"] }
 tempfile = "3.27"
 thiserror = "2.0"
 tokio = { version = "1.47", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 tower = { version = "0.5.3", features = ["util"] }
 tracing = "0.1.41"
