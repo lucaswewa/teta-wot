@@ -16,7 +16,7 @@ Applications depend on one crate, `teta-wot`, from the Git repository:
 
 ```toml
 [dependencies]
-teta-wot = { git = "https://github.com/lucaswewa/teta-wot", tag = "v0.1.0" }
+teta-wot = { git = "https://github.com/lucaswewa/teta-wot", tag = "v0.2.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 anyhow = "1"
 ```
@@ -35,6 +35,7 @@ In Rust code the crate is `teta_wot`: `use teta_wot::prelude::*;` brings in what
 | `mdns` | Advertising the server with DNS-SD ([Discovery](../discovery.md)) |
 | `docs-offline` | Swagger UI and ReDoc compiled into the binary, for networks without internet access |
 | `windows-service` | Running as a Windows service ([Windows service](../windows_service.md)). It has no effect on other systems |
+| `tls` | Serving over TLS, with HTTP/2 for clients that negotiate it ([TLS and HTTP/2](../composition.md#tls-and-http2)) |
 
 ## Without Rust
 
@@ -45,11 +46,14 @@ Each [release](https://github.com/lucaswewa/teta-wot/releases) has a Windows pac
 LabThings' Python client, `labthings_fastapi.ThingClient`, works against `teta-wot` servers:
 
 ```text
-pip install labthings-fastapi==0.3.0
+pip install labthings-fastapi==0.3.0 httpx
 ```
 
-The repository's conformance project (`conformance/reference`, managed with [uv](https://docs.astral.sh/uv/)) has it, with everything the examples' Python scripts use:
+The simulated microscope's `demo.py` uses both. With `--spawn`, it starts the server itself, on a free port:
 
 ```text
-uv run --locked --project conformance/reference python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
+cargo build -p simulated-microscope
+python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
 ```
+
+On Linux, the server is `target/debug/simulated-microscope`.

@@ -175,7 +175,7 @@ impl SettingsStore {
 /// JSON as pydantic's `model_dump_json(indent=4)` writes it: 4-space
 /// indentation, `": "` and `","` separators, UTF-8 kept, no trailing
 /// newline. serde_json and pydantic-core format floats the same way
-/// (`1e-7`, `1e+20`, `0.00001`), as `conformance/fixtures/settings` shows.
+/// (`1e-7`, `1e+20`, `0.00001`).
 pub fn to_settings_json(value: &Value) -> serde_json::Result<String> {
     let mut out = Vec::new();
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");

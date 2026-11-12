@@ -169,8 +169,8 @@ async fn panic_faults_calls_until_reset_recreates_the_driver() {
     assert_eq!(device.call(|d, _| d.0).await.unwrap(), 1);
     assert!(matches!(device.call(|_, _| panic!("jammed")).await,
         Err(DeviceError::Panicked { name, message }) if name == "motor" && message == "jammed"));
-    // A second call also synchronizes with the worker's state update after
-    // the panic reply, whether it was already faulted or still in the mailbox.
+    // The device is faulted by the time its caller hears of the panic.
+    assert_eq!(device.state(), DeviceState::Faulted);
     assert!(matches!(device.call(|_, _| panic!("must not run")).await,
         Err(DeviceError::Faulted { name, reason }) if name == "motor" && reason == "jammed"));
     assert_eq!(device.state(), DeviceState::Faulted);

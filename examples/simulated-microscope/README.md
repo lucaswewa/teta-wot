@@ -47,8 +47,9 @@ Then:
 - `demo.py` runs a scripted session with a Python client:
 
   ```
-  uv run --locked python examples/simulated-microscope/demo.py
-  uv run --locked python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
+  pip install labthings-fastapi==0.3.0 httpx
+  python examples/simulated-microscope/demo.py
+  python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
   ```
 
-  The first form uses the running server. With `--spawn` (as CI runs it), it starts one on a free port with a temporary settings folder. It saves the captured image as `capture.jpg`.
+  The first form uses the running server. With `--spawn`, it starts one on a free port with a temporary settings folder. It saves the captured image as `capture.jpg`.

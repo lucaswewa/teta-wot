@@ -9,6 +9,7 @@
   - [Installing teta-wot](tutorial/installing.md)
   - [Running a server](tutorial/running.md)
   - [Writing a Thing](tutorial/writing_a_thing.md)
+- [Migrating](migration.md)
 
 # Writing Things
 

@@ -31,6 +31,8 @@ The capstone composes three Things with slots:
 
 ```text
 cargo run -p simulated-microscope -- -c examples/simulated-microscope/microscope.json
-uv run --locked --project conformance/reference python examples/simulated-microscope/demo.py
+python examples/simulated-microscope/demo.py
 ```
+
+`demo.py` needs LabThings' Python client: see [The Python side](tutorial/installing.md#the-python-side).
 

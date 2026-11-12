@@ -25,8 +25,8 @@
 //! | `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc` | `GET` and `HEAD`: the OpenAPI document ([`openapi`]) and the docs pages, at the root as in FastAPI |
 //!
 //! In the `tetathing` profile, routing, redirects, 404/405, CORS, error
-//! bodies and invocation JSON follow the reference as captured in
-//! `conformance/fixtures/http/`. The W3C additions that don't conflict are
+//! bodies and invocation JSON follow the reference, LabThings-FastAPI
+//! v0.3.0. The W3C additions that don't conflict are
 //! on in both profiles: the TD `id`, the `Location` header,
 //! observation and events described in the TD, top-level forms, invocation forms and discovery.
 //! The `wot` profile changes: 204 writes,
@@ -88,7 +88,7 @@ pub struct HttpOptions {
     pub server_id: String,
     /// The API's title in the OpenAPI document and the docs pages
     pub api_title: String,
-    /// The API's version in the OpenAPI document.
+    /// The API's version in the OpenAPI document (by default, `teta-wot`'s).
     pub api_version: String,
     /// How the server behaves where tetathing and the W3C differ.
     pub profile: WireProfile,
@@ -105,7 +105,7 @@ impl Default for HttpOptions {
             api_prefix: String::new(),
             server_id: default_server_id(),
             api_title: "teta-wot".to_owned(),
-            api_version: "0.1.0".to_owned(),
+            api_version: env!("CARGO_PKG_VERSION").to_owned(),
             profile: WireProfile::default(),
             security: None,
             auth: Auth::default(),
@@ -222,7 +222,7 @@ pub enum RouteError {
         route: String,
     },
     /// A custom endpoint wasn't made with [`Endpoint`].
-    #[error("the endpoint `{path}` of Thing `{thing}` wasn't made with `wot_http::Endpoint`")]
+    #[error("the endpoint `{path}` of Thing `{thing}` wasn't made with `teta_wot::http::Endpoint`")]
     ForeignEndpoint {
         /// The Thing.
         thing: String,

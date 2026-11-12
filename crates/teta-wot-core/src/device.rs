@@ -147,8 +147,9 @@ type Factory<D> = Box<dyn FnMut() -> anyhow::Result<D> + Send>;
 
 /// A job for the device thread.
 trait Call<D>: Send {
-    /// Runs on the driver; returns the panic message if it panicked.
-    fn run(self: Box<Self>, driver: &mut D, name: &str) -> Option<String>;
+    /// Runs on the driver. If it panics, `faulted` gets the message before
+    /// the caller is answered, so the caller then sees the device faulted.
+    fn run(self: Box<Self>, driver: &mut D, name: &str, faulted: &dyn Fn(String));
     /// Answers without running.
     fn fail(self: Box<Self>, error: DeviceError);
     /// Whether the caller has stopped waiting.
@@ -167,7 +168,7 @@ where
     F: FnOnce(&mut D, &CancelToken) -> R + Send,
     R: Send,
 {
-    fn run(self: Box<Self>, driver: &mut D, name: &str) -> Option<String> {
+    fn run(self: Box<Self>, driver: &mut D, name: &str, faulted: &dyn Fn(String)) {
         let TypedCall {
             f,
             reply,
@@ -175,20 +176,15 @@ where
             span,
         } = *self;
         let result = catch_unwind(AssertUnwindSafe(|| span.in_scope(|| f(driver, &token))));
-        match result {
-            Ok(value) => {
-                let _ = reply.send(Ok(value));
-                None
+        let answer = result.map_err(|payload| {
+            let message = panic_message(&*payload);
+            faulted(message.clone());
+            DeviceError::Panicked {
+                name: name.to_owned(),
+                message,
             }
-            Err(payload) => {
-                let message = panic_message(&*payload);
-                let _ = reply.send(Err(DeviceError::Panicked {
-                    name: name.to_owned(),
-                    message: message.clone(),
-                }));
-                Some(message)
-            }
-        }
+        });
+        let _ = reply.send(answer);
     }
 
     fn fail(self: Box<Self>, error: DeviceError) {
@@ -555,12 +551,10 @@ fn device_thread<D: Driver>(
                 }
                 let (state, reason) = shared.lock().clone();
                 match (&mut driver, state) {
-                    (Some(d), Some(DeviceState::Ready)) => {
-                        if let Some(message) = call.run(d, &name) {
-                            tracing::error!(device = %name, "device call panicked: {message}");
-                            shared.set(DeviceState::Faulted, Some(message));
-                        }
-                    }
+                    (Some(d), Some(DeviceState::Ready)) => call.run(d, &name, &|message| {
+                        tracing::error!(device = %name, "device call panicked: {message}");
+                        shared.set(DeviceState::Faulted, Some(message));
+                    }),
                     (_, Some(DeviceState::Faulted)) => call.fail(DeviceError::Faulted {
                         name: name.clone(),
                         reason: reason.unwrap_or_default(),
@@ -618,5 +612,32 @@ impl<T: Send + Sync + 'static, D: Driver> DeviceControl for DeviceAccess<T, D> {
 
     fn close(&self) -> crate::BoxFuture<'_, Result<(), DeviceError>> {
         Box::pin((self.accessor)(&self.thing).close())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::*;
+
+    #[test]
+    fn a_panicking_call_faults_the_device_before_its_caller_is_answered() {
+        let (reply, answer) = oneshot::channel::<Result<(), DeviceError>>();
+        let answer = RefCell::new(answer);
+        let call: Box<dyn Call<()>> = Box::new(TypedCall {
+            f: |_: &mut (), _: &CancelToken| panic!("jammed"),
+            reply,
+            token: CancelToken::new(),
+            span: tracing::Span::none(),
+        });
+        let faulted = RefCell::new(None);
+        call.run(&mut (), "motor", &|message| {
+            let answered = answer.borrow_mut().try_recv().is_ok();
+            *faulted.borrow_mut() = Some((message, answered));
+        });
+        assert_eq!(faulted.take(), Some(("jammed".to_owned(), false)));
+        assert!(matches!(answer.borrow_mut().try_recv(),
+            Ok(Err(DeviceError::Panicked { name, message })) if name == "motor" && message == "jammed"));
     }
 }

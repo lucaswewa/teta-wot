@@ -872,7 +872,7 @@ fn wot_schemas() -> Map<String, Value> {
                 }},
             },
             "additionalProperties": true,
-            "description": "Problem details (RFC 9457). The framework's types are documented at https://github.com/lucaswewa/wot/blob/main/docs/problems.md.",
+            "description": "Problem details (RFC 9457). The framework's types are documented at https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md.",
         },
     }))
 }

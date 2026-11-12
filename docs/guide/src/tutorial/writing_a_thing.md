@@ -50,4 +50,4 @@ light.toggle().await?; // an `ActionError`; in an `anyhow` function, `.map_err(A
 | `@lt.action def toggle(self):` | `#[action] async fn toggle(&self)` in `#[thing_impl]` |
 | `@lt.property def status(self) -> str:` | `#[property] async fn status(&self) -> String` |
 
-The [migration guide](../migration.md) has the complete table.
+The [migration guide](../migration.md) has a longer table: settings, slots, the global lock, arrays, the command line and the client.

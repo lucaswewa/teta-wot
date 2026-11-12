@@ -237,7 +237,7 @@ impl ThingServerBuilder {
     }
 
     /// The API's title and version, in the OpenAPI document and the docs
-    /// pages (`teta-wot` and `0.1.0` by default).
+    /// pages (`teta-wot` and its version by default).
     pub fn api_info(mut self, title: impl Into<String>, version: impl Into<String>) -> Self {
         self.http.api_title = title.into();
         self.http.api_version = version.into();

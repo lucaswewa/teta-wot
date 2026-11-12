@@ -14,7 +14,7 @@ speed: Prop<f64>,
 
 ## The file
 
- It is indented JSON, one key per setting, with CRLF line endings on Windows:
+It is indented JSON, one key per setting, with CRLF line endings on Windows:
 
 ```json
 {

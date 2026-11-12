@@ -23,7 +23,8 @@ use crate::render::{self, detail, unprocessable};
 
 /// Where the `wot` profile's problem types are documented; each type is
 /// this URL, `#`, and the type's name, such as `validation-error`.
-pub const PROBLEM_TYPES_URL: &str = "https://github.com/lucaswewa/wot/blob/main/docs/problems.md";
+pub const PROBLEM_TYPES_URL: &str =
+    "https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md";
 
 /// The media type of problem details (RFC 9457).
 pub(crate) const PROBLEM_JSON: &str = "application/problem+json";
@@ -237,6 +238,28 @@ pub(crate) fn wot_problem(problem: &ProblemDetails) -> (StatusCode, Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_problem_type_is_documented_where_its_url_points() {
+        // The URL is an identifier: clients compare problem `type`s.
+        assert_eq!(
+            PROBLEM_TYPES_URL,
+            "https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md"
+        );
+        let page = include_str!("../../../docs/problems.md");
+        let names = [
+            "validation-error",
+            "global-lock-busy",
+            "cancelled",
+            "failed",
+            "not-cancellable",
+            "no-output",
+        ];
+        for name in names {
+            let heading = format!("## {name}");
+            assert!(page.lines().any(|line| line == heading), "no `{heading}`");
+        }
+    }
 
     #[test]
     fn tetathing_problems_get_the_frameworks_types() {

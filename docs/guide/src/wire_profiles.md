@@ -20,7 +20,7 @@ Choose it in the configuration file (`"wire_profile": "wot"`) or the builder (`.
 | Server-sent events on an affordance | `data:` only | named after the affordance, with an `id` |
 | The TD | no `profile` | `profile` names the HTTP Basic and SSE Profiles; `synchronous` says which actions wait |
 
-The problem types of the `wot` profile are documented in the repository's [`docs/problems.md`](https://github.com/lucaswewa/wot/blob/main/docs/problems.md).
+The problem types of the `wot` profile are documented in the repository's [`docs/problems.md`](https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md).
 
 ## Which to choose
 

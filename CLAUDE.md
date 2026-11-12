@@ -31,7 +31,7 @@
 They look like leftovers of the old `wot` name, but they are part of the wire format or of users' setups:
 
 - **The namespace URL that Thing Description `id`s are derived from** (`https://github.com/lucaswewa/wot#td-id`, in `teta-wot-http`). Changing it changes every TD `id`.
-- **`PROBLEM_TYPES_URL`,** the base of every problem `type`.
+- **`PROBLEM_TYPES_URL`,** the base of every problem `type` (`https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md`, in `teta-wot-http`). Each type there has a heading in `docs/problems.md`, which a test checks.
 - **The log target `wot::things`,** which users filter on.
 - **The `wot` wire profile's name.**
 

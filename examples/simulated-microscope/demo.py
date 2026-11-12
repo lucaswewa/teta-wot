@@ -1,9 +1,9 @@
 """A scripted session with the simulated microscope.
 
-Uses the conformance project's Python environment:
+Needs LabThings' Python client (pip install labthings-fastapi==0.3.0 httpx):
 
-    uv run --locked python examples/simulated-microscope/demo.py
-    uv run --locked python examples/simulated-microscope/demo.py \
+    python examples/simulated-microscope/demo.py
+    python examples/simulated-microscope/demo.py \
         --spawn target/debug/simulated-microscope.exe
 
 The first form talks to a server already running on port 5000:
@@ -11,7 +11,7 @@ The first form talks to a server already running on port 5000:
     cargo run -p simulated-microscope -- -c examples/simulated-microscope/microscope.json
 
 ``--spawn`` starts the server first, on a free port with a temporary
-settings folder, and stops it afterwards (for CI). The captured image is
+settings folder, and stops it afterwards. The captured image is
 saved as ``capture.jpg`` in the current folder, or with ``--out``.
 """
 
