@@ -4,11 +4,7 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ## [Unreleased]
 
-### Changed
-
-- **The README** describes `teta-wot`, and says how to install it, how to use it, and which example teaches what.
-
-## [0.2.0] - 2026-11-11
+## [0.2.0] - 2026-11-12
 
 Linux support, path parameters, your own routes and layers, TLS and HTTP/2, binary streams, and pluggable authentication. Upgrading from 0.1 needs code changes only where `HttpOptions` or `EndpointLink` is built with a struct literal. Problem types have new URIs, and WebSocket clients of servers that require credentials are refused differently. The guide's [*Migrating*](https://github.com/lucaswewa/teta-wot/blob/v0.2.0/docs/guide/src/migration.md) page has the details.
 
@@ -68,6 +64,7 @@ Linux support, path parameters, your own routes and layers, TLS and HTTP/2, bina
 - **`microscope-service`,** a Windows service, prints that it is Windows-only and exits on other systems, rather than failing to build.
 - **The OpenAPI document's default version is `teta-wot`'s** (here `0.2.0`), where 0.1 always said `0.1.0`. `ThingServerBuilder::api_info` sets your API's own.
 - **Documentation:**
+  - the README describes `teta-wot`, and says how to install it, how to use it, and which example teaches what;
   - the guide covers Linux (installing, stopping a server), and uses the crate's current name, `teta-wot` (`teta_wot::` in code), and its repository's URL;
   - a new page, *Migrating*, maps LabThings' Python constructs to `teta-wot`'s, and says how to move from 0.1 to 0.2;
   - the features table lists `tls`;
