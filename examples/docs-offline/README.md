@@ -2,7 +2,7 @@
 
 **Concept:** the interactive API documentation on a lab network without internet access. With the `docs-offline` feature, Swagger UI (`/docs`) and ReDoc (`/redoc`) are compiled into the server, so their pages load nothing from outside.
 
-**Technologies:** the `docs-offline` feature of `wot`; Swagger UI 5.33.0 and ReDoc 2.5.4, vendored in `crates/wot-http/assets/`; a headless Microsoft Edge driven through the Chrome DevTools Protocol, from Python.
+**Technologies:** the `docs-offline` feature of `teta-wot`; Swagger UI 5.33.0 and ReDoc 2.5.4, vendored in `crates/teta-wot-http/assets/`; a headless Microsoft Edge driven through the Chrome DevTools Protocol, from Python.
 
 ## Run it
 

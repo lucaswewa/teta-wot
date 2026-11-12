@@ -6,7 +6,7 @@ A release is a tag, `vX.Y.Z`, on `main`. Pushing it runs [`.github/workflows/rel
 
 Read `CHANGELOG.md`'s `Unreleased` section.
 
-- **Anything under *Removed*, or a breaking *Changed*,** needs a new minor version before 1.0 (`0.1.x` → `0.2.0`). Breaking means breaking any of these surfaces: the `teta-wot` crate's API, the `labthings` wire profile, configuration files and the command line, TD `id`s, settings files, problem types, or the minimum Rust version.
+- **Anything under *Removed*, or a breaking *Changed*,** needs a new minor version before 1.0 (`0.1.x` → `0.2.0`). Breaking means breaking any of these surfaces: the `teta-wot` crate's API, the wire profiles, configuration files and the command line, TD `id`s, settings files, problem types, or the minimum Rust version.
 - **Otherwise,** only fixes mean a patch (`0.1.0` → `0.1.1`), and additions a minor version.
 
 ## 2. Prepare the branch
@@ -25,7 +25,7 @@ target\release\soak --server target\release\simulated-microscope.exe --duration 
 target\release\soak --server target\release\simulated-microscope.exe --duration 1h --profile wot
 ```
 
-Both must print `PASSED`. Keep the output: its summary lines go into the release notes (step 5), and `soak.csv` can be attached to the release.
+On Linux, the server is `target/release/simulated-microscope`. Both must print `PASSED`. Keep the output: its summary lines go into the release notes (step 5), and `soak.csv` can be attached to the release.
 
 ## 4. Review what is distributed
 

@@ -16,7 +16,7 @@ Applications depend on one crate, `teta-wot`, from the Git repository:
 
 ```toml
 [dependencies]
-teta-wot = { git = "https://github.com/lucaswewa/teta-wot", tag = "v0.1.0" }
+teta-wot = { git = "https://github.com/lucaswewa/teta-wot", tag = "v0.2.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 anyhow = "1"
 ```
@@ -35,6 +35,7 @@ In Rust code the crate is `teta_wot`: `use teta_wot::prelude::*;` brings in what
 | `mdns` | Advertising the server with DNS-SD ([Discovery](../discovery.md)) |
 | `docs-offline` | Swagger UI and ReDoc compiled into the binary, for networks without internet access |
 | `windows-service` | Running as a Windows service ([Windows service](../windows_service.md)). It has no effect on other systems |
+| `tls` | Serving over TLS, with HTTP/2 for clients that negotiate it ([TLS and HTTP/2](../composition.md#tls-and-http2)) |
 
 ## Without Rust
 

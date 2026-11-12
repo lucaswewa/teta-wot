@@ -4,6 +4,10 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-12
+
+Linux support, path parameters, your own routes and layers, TLS and HTTP/2, binary streams, and pluggable authentication. Upgrading from 0.1 needs code changes only where `HttpOptions` or `EndpointLink` is built with a struct literal. WebSocket clients of servers that require credentials are refused differently. The guide's [*Migrating*](https://github.com/lucaswewa/teta-wot/blob/v0.2.0/docs/guide/src/migration.md) page has the details.
+
 ### Added
 
 - **Pluggable authentication and authorisation.**
@@ -14,7 +18,6 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
   - **Who is calling.** `Principal::current()` gives the caller to the code a request runs: getters, setters, actions (also as `ActionCtx::principal`), endpoints, merged routes and binary-stream producers (also as `Subscriber::principal`).
   - **WebSockets authenticate with their first message,** `{"authorization": "…"}`, when their upgrade request has no `Authorization` header, as browsers can't add one. A failure, or no message within 10 seconds, closes the socket with 1008. This covers the observation WebSocket and binary streams. A custom endpoint marked with `EndpointSpec::websocket` can do the same with `teta_wot::http::FirstMessageAuth`.
   - **A new example: `custom-auth`.** API keys for operators and viewers, and a logbook that signs its entries.
-
 - **Binary streams.** `#[binary_stream]` methods, or `Endpoint::binary_stream`, make a WebSocket of binary messages for each client.
   - **The producer** runs for each connection with a `Subscriber<P>`.
   - **Parameters.** The client sends its parameters as JSON, which are deserialised into `P`; bad ones are answered with `{"error": …}`.
@@ -23,7 +26,6 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
   - **The TD** links each stream, with its `subprotocol` (`websocket`), media type and parameter schema.
   - **A new example: `binary-stream`.** It streams 1 MB at 60 Hz to four clients: about 63 MB/s each, with nothing dropped, on a Windows laptop.
 - **`EndpointSpec::link_member`** adds a member to an endpoint's TD link.
-
 - **Your own routes and layers.**
   - `ThingServerBuilder::merge` adds an application's axum routes in front of the Things' routes. They get the server's credentials, CORS, layers and graceful shutdown.
   - `ThingServerBuilder::layer` adds a layer around every route.
@@ -36,7 +38,6 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
   - It uses rustls with the `ring` provider.
   - HTTP/2 is served to clients that negotiate it by ALPN.
   - A new guide chapter: *Your own routes, layers and TLS*.
-
 - **Path parameters in custom endpoints.**
   - An endpoint's path can have parameters, as whole segments: `#[endpoint(get, "tiles/{level}/{tile}")]`. Its last segment can be a wildcard, `{*rest}`, for the rest of the path.
   - The new `PathParams` extractor (`teta_wot::http::PathParams`) gives the values, percent-decoded. A value that isn't valid UTF-8 once decoded is a `400`.
@@ -52,13 +53,26 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 - **`HttpOptions` has a new public field, `auth`.** Code that builds `HttpOptions` with a struct literal must add `auth: Default::default()`, or end with `..Default::default()`.
 - **WebSocket upgrades without credentials,** on a server that requires them, are no longer refused with `401`. The observation WebSocket and binary streams accept them, then wait for the credentials in the first message.
-
 - **`EndpointLink` has a new public field, `members`,** for the link's other members. Code that builds an `EndpointLink` with a struct literal must add `members: Default::default()`; `EndpointSpec::link` sets it.
 - **HTTP/2 everywhere.** `axum` is built with HTTP/2, so `serve` and `serve_with` also accept HTTP/2 without TLS ("h2c"), from clients that use it. The `h2` crate is now a dependency.
 - **The licence is stated:** the workspace's crates declare `license = "MIT"`, matching `LICENSE`. The guide no longer says there is no licence.
 - **`rust-toolchain.toml` no longer pins a target,** so each platform builds for itself.
 - **`microscope-service`,** a Windows service, prints that it is Windows-only and exits on other systems, rather than failing to build.
-- **Documentation:** the guide covers Linux (installing, stopping a server), and uses the crate's current name, `teta-wot` (`teta_wot::` in code), and its repository's URL. `docs/releasing.md` no longer links to an ADR that isn't in the repository.
+- **The OpenAPI document's default version is `teta-wot`'s** (here `0.2.0`), where 0.1 always said `0.1.0`. `ThingServerBuilder::api_info` sets your API's own.
+- **Documentation:**
+  - the guide covers Linux (installing, stopping a server), and uses the crate's current name, `teta-wot` (`teta_wot::` in code), and its repository's URL;
+  - a new page, *Migrating*, maps LabThings' Python constructs to `teta-wot`'s, and says how to move from 0.1 to 0.2;
+  - the features table lists `tls`;
+  - `docs/releasing.md` no longer links to an ADR that isn't in the repository.
+
+### Fixed
+
+- **`RouteError::ForeignEndpoint`'s message** named the crate's old name, `wot_http`. It now names `teta_wot::http::Endpoint`.
+- **The guide's links to its migration guide** led nowhere: the page didn't exist.
+- **The Windows package's licences.**
+  - It carries `THIRD_PARTY_LICENSES.txt` again: the licence texts of the crates compiled into its binaries.
+  - It now carries `THIRD_PARTY_NOTICES.md`, for the files copied into the sources: Swagger UI, ReDoc and the W3C TD JSON Schema.
+  - Its README acknowledges the Independent JPEG Group's work, which the JPEG encoder is based on, as the encoder's licence asks.
 
 ## [0.1.0] - 2026-10-03
 
@@ -87,4 +101,5 @@ The first release. Everything below is new.
 - **The guide:** an mdBook guide.
 - **Hardening:** fuzzing of validation, the WebSocket parser and request bodies; a shutdown-under-load test; and the soak tool (`tools/soak`).
 
+[0.2.0]: https://github.com/lucaswewa/teta-wot/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lucaswewa/teta-wot/releases/tag/v0.1.0

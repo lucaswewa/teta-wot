@@ -26,5 +26,10 @@ microscope-service.exe
     It writes its configuration and log next to itself.
 
 CHANGELOG.md             what changed in this release
+THIRD_PARTY_LICENSES.txt the licences of the crates compiled into the binaries
+THIRD_PARTY_NOTICES.md   the files copied into teta-wot's sources
 
-teta-wot is unter MIT license.
+teta-wot is under the MIT licence. The binaries contain code from other
+crates, each under its own licence (THIRD_PARTY_LICENSES.txt). This software
+is based in part on the work of the Independent JPEG Group: the JPEG encoder
+of the camera's preview and captures.
