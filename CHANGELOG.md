@@ -67,6 +67,7 @@ Linux support, path parameters, your own routes and layers, TLS and HTTP/2, bina
 
 ### Fixed
 
+- **A panicking device call** answered its caller before marking the device `Faulted`, so `Device::state()` could still say `Ready` just after the caller got `DeviceError::Panicked`. The device is now faulted first.
 - **`RouteError::ForeignEndpoint`'s message** named the crate's old name, `wot_http`. It now names `teta_wot::http::Endpoint`.
 - **The guide's links to its migration guide** led nowhere: the page didn't exist.
 - **The Windows package's licences.**
