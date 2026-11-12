@@ -64,6 +64,7 @@ Linux support, path parameters, your own routes and layers, TLS and HTTP/2, bina
 - **`microscope-service`,** a Windows service, prints that it is Windows-only and exits on other systems, rather than failing to build.
 - **The OpenAPI document's default version is `teta-wot`'s** (here `0.2.0`), where 0.1 always said `0.1.0`. `ThingServerBuilder::api_info` sets your API's own.
 - **Documentation:**
+  - the README describes `teta-wot`, and says how to install it, how to use it, and which example teaches what;
   - the guide covers Linux (installing, stopping a server), and uses the crate's current name, `teta-wot` (`teta_wot::` in code), and its repository's URL;
   - a new page, *Migrating*, maps LabThings' Python constructs to `teta-wot`'s, and says how to move from 0.1 to 0.2;
   - the features table lists `tls`;
