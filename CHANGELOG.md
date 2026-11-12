@@ -4,7 +4,7 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-12
+## [0.2.0] - 2026-11-11
 
 Linux support, path parameters, your own routes and layers, TLS and HTTP/2, binary streams, and pluggable authentication. Upgrading from 0.1 needs code changes only where `HttpOptions` or `EndpointLink` is built with a struct literal. Problem types have new URIs, and WebSocket clients of servers that require credentials are refused differently. The guide's [*Migrating*](https://github.com/lucaswewa/teta-wot/blob/v0.2.0/docs/guide/src/migration.md) page has the details.
 
