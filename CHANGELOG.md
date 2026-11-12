@@ -6,7 +6,7 @@ All notable changes to `teta-wot` are recorded here, in the format of [Keep a Ch
 
 ## [0.2.0] - 2026-11-12
 
-Linux support, path parameters, your own routes and layers, TLS and HTTP/2, binary streams, and pluggable authentication. Upgrading from 0.1 needs code changes only where `HttpOptions` or `EndpointLink` is built with a struct literal. WebSocket clients of servers that require credentials are refused differently. The guide's [*Migrating*](https://github.com/lucaswewa/teta-wot/blob/v0.2.0/docs/guide/src/migration.md) page has the details.
+Linux support, path parameters, your own routes and layers, TLS and HTTP/2, binary streams, and pluggable authentication. Upgrading from 0.1 needs code changes only where `HttpOptions` or `EndpointLink` is built with a struct literal. Problem types have new URIs, and WebSocket clients of servers that require credentials are refused differently. The guide's [*Migrating*](https://github.com/lucaswewa/teta-wot/blob/v0.2.0/docs/guide/src/migration.md) page has the details.
 
 ### Added
 
@@ -51,6 +51,10 @@ Linux support, path parameters, your own routes and layers, TLS and HTTP/2, bina
 
 ### Changed
 
+- **Problem types are documented in this repository,** in [`docs/problems.md`](https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md).
+  - **Their URIs changed.** Every problem `type` of the framework's (in the `wot` profile, and on the discovery routes) now starts with `https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md#`. In 0.1 it started with `https://github.com/lucaswewa/wot/blob/main/docs/problems.md#`, which didn't resolve.
+  - **The names after the `#` are unchanged,** such as `validation-error`.
+  - **Clients that compare `type`s** must use the new prefix.
 - **`HttpOptions` has a new public field, `auth`.** Code that builds `HttpOptions` with a struct literal must add `auth: Default::default()`, or end with `..Default::default()`.
 - **WebSocket upgrades without credentials,** on a server that requires them, are no longer refused with `401`. The observation WebSocket and binary streams accept them, then wait for the credentials in the first message.
 - **`EndpointLink` has a new public field, `members`,** for the link's other members. Code that builds an `EndpointLink` with a struct literal must add `members: Default::default()`; `EndpointSpec::link` sets it.
@@ -70,6 +74,7 @@ Linux support, path parameters, your own routes and layers, TLS and HTTP/2, bina
 - **A panicking device call** answered its caller before marking the device `Faulted`, so `Device::state()` could still say `Ready` just after the caller got `DeviceError::Panicked`. The device is now faulted first.
 - **`RouteError::ForeignEndpoint`'s message** named the crate's old name, `wot_http`. It now names `teta_wot::http::Endpoint`.
 - **The guide's links to its migration guide** led nowhere: the page didn't exist.
+- **The Python instructions** used a `conformance/` project that isn't in the repository. They now install LabThings' client with `pip install labthings-fastapi==0.3.0 httpx`.
 - **The Windows package's licences.**
   - It carries `THIRD_PARTY_LICENSES.txt` again: the licence texts of the crates compiled into its binaries.
   - It now carries `THIRD_PARTY_NOTICES.md`, for the files copied into the sources: Swagger UI, ReDoc and the W3C TD JSON Schema.

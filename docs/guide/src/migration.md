@@ -39,7 +39,7 @@ These are unchanged:
 - configuration files and the command line;
 - settings files;
 - Thing Description `id`s;
-- problem types;
+- the names of problem types (their URIs changed, below);
 - both wire profiles' answers, except to WebSocket upgrades without credentials (below).
 
 ### Code that may not compile
@@ -59,6 +59,7 @@ Two structs gained a public field. Code that builds them with a struct literal m
 
 ### Behaviour to check
 
+- **Problem types' URIs.** In the `wot` profile, and on the discovery routes, a problem's `type` now starts with `https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md#`, where 0.1's started with `https://github.com/lucaswewa/wot/blob/main/docs/problems.md#`. The names after the `#`, such as `validation-error`, are the same. A client that compares `type`s must use the new prefix. The [problem types](https://github.com/lucaswewa/teta-wot/blob/main/docs/problems.md) are documented there now.
 - **WebSockets on a server that requires credentials.** An upgrade request without an `Authorization` header used to be refused with `401`.
   - **Now the observation WebSocket and binary streams accept it,** and wait for the credentials in the first message: `{"authorization": "Bearer …"}`, the value the header would have held.
   - **A wrong value, or nothing within 10 seconds,** closes the socket with code 1008.

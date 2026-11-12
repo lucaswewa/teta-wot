@@ -46,11 +46,14 @@ Each [release](https://github.com/lucaswewa/teta-wot/releases) has a Windows pac
 LabThings' Python client, `labthings_fastapi.ThingClient`, works against `teta-wot` servers:
 
 ```text
-pip install labthings-fastapi==0.3.0
+pip install labthings-fastapi==0.3.0 httpx
 ```
 
-The repository's conformance project (`conformance/reference`, managed with [uv](https://docs.astral.sh/uv/)) has it, with everything the examples' Python scripts use:
+The simulated microscope's `demo.py` uses both. With `--spawn`, it starts the server itself, on a free port:
 
 ```text
-uv run --locked --project conformance/reference python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
+cargo build -p simulated-microscope
+python examples/simulated-microscope/demo.py --spawn target/debug/simulated-microscope.exe
 ```
+
+On Linux, the server is `target/debug/simulated-microscope`.

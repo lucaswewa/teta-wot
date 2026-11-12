@@ -25,8 +25,8 @@
 //! | `/openapi.json`, `/docs`, `/docs/oauth2-redirect`, `/redoc` | `GET` and `HEAD`: the OpenAPI document ([`openapi`]) and the docs pages, at the root as in FastAPI |
 //!
 //! In the `tetathing` profile, routing, redirects, 404/405, CORS, error
-//! bodies and invocation JSON follow the reference as captured in
-//! `conformance/fixtures/http/`. The W3C additions that don't conflict are
+//! bodies and invocation JSON follow the reference, LabThings-FastAPI
+//! v0.3.0. The W3C additions that don't conflict are
 //! on in both profiles: the TD `id`, the `Location` header,
 //! observation and events described in the TD, top-level forms, invocation forms and discovery.
 //! The `wot` profile changes: 204 writes,
