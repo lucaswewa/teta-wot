@@ -11,10 +11,10 @@
 - **Types describe the data.** Properties, action inputs and outputs are Rust types. Their JSON Schemas become the Thing Description's data schemas, and invalid input is refused.
 - **Built for hardware:**
   - each Thing is created, started and stopped once;
-  - blocking drivers run on threads of their own;
+  - blocking drivers run on their own threads;
   - long actions can be cancelled;
   - an optional global lock keeps actions from overlapping;
-  - settings survive restarts.
+  - settings persist across restarts.
 - **More of the Web of Things:**
   - events;
   - observation over WebSocket and server-sent events;
@@ -34,7 +34,7 @@
 
 **The toolchain.** Install [rustup](https://rustup.rs/).
 
-- **On Windows,** choose the MSVC toolchain, and install Visual Studio's C++ build tools when it asks.
+- **On Windows,** choose the MSVC toolchain, and install Visual Studio's C++ build tools when necessary.
 - **On Linux,** install a C toolchain first. On Ubuntu: `sudo apt install build-essential pkg-config`.
 
 `teta-wot` needs Rust 1.98 or newer.
