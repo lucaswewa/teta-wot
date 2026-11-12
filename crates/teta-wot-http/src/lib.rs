@@ -88,7 +88,7 @@ pub struct HttpOptions {
     pub server_id: String,
     /// The API's title in the OpenAPI document and the docs pages
     pub api_title: String,
-    /// The API's version in the OpenAPI document.
+    /// The API's version in the OpenAPI document (by default, `teta-wot`'s).
     pub api_version: String,
     /// How the server behaves where tetathing and the W3C differ.
     pub profile: WireProfile,
@@ -105,7 +105,7 @@ impl Default for HttpOptions {
             api_prefix: String::new(),
             server_id: default_server_id(),
             api_title: "teta-wot".to_owned(),
-            api_version: "0.1.0".to_owned(),
+            api_version: env!("CARGO_PKG_VERSION").to_owned(),
             profile: WireProfile::default(),
             security: None,
             auth: Auth::default(),
@@ -222,7 +222,7 @@ pub enum RouteError {
         route: String,
     },
     /// A custom endpoint wasn't made with [`Endpoint`].
-    #[error("the endpoint `{path}` of Thing `{thing}` wasn't made with `wot_http::Endpoint`")]
+    #[error("the endpoint `{path}` of Thing `{thing}` wasn't made with `teta_wot::http::Endpoint`")]
     ForeignEndpoint {
         /// The Thing.
         thing: String,

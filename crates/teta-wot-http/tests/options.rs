@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use teta_wot_core::{Runtime, Thing, ThingDefinition};
 use teta_wot_http::{
-    HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id, router, td_id,
+    HttpOptions, RESERVED_THING_NAMES, RouteError, default_server_id, openapi, router, td_id,
 };
 use uuid::Uuid;
 
@@ -28,6 +28,14 @@ fn default_options_use_no_prefix_and_the_default_server_identity() {
     let defaults = HttpOptions::default();
     assert!(defaults.api_prefix.is_empty());
     assert_eq!(defaults.server_id, default_server_id());
+}
+
+#[test]
+fn the_default_api_version_is_the_crate_version() {
+    let runtime = Runtime::builder().build().unwrap();
+    let document = openapi(&runtime, &HttpOptions::default());
+    assert_eq!(document["info"]["title"], "teta-wot");
+    assert_eq!(document["info"]["version"], env!("CARGO_PKG_VERSION"));
 }
 
 #[test]
